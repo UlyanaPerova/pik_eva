@@ -30,6 +30,12 @@ backups/
 .DS_Store
 Thumbs.db
 
+# Logs
+logs/
+
 # Env
 .env
 .env.local
+
+# Текстовые заметки
+*.txt

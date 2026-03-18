@@ -1,0 +1,17 @@
+# ПИК — застройщик
+# Стратегия: browser (Playwright headless) — нужно прожимать "показать ещё"
+name: "ПИК"
+key: "pik"
+base_url: "https://www.pik.ru"
+strategy: "browser"
+
+links:
+  - url: "https://www.pik.ru/search/kazan/siberovo/storehouse"
+    complex_name: "Сибирово"
+    city: "Казань"
+    notes: "Прожимать 'показать ещё' требуется"
+
+  - url: "https://www.pik.ru/search/kazan/noksapark/storehouse"
+    complex_name: "Нокса-Парк"
+    city: "Казань"
+    notes: "Прожимать 'показать ещё' требуется"

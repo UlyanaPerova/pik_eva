@@ -1,0 +1,16 @@
+# GloraX — застройщик
+# Сложная навигация: выбрать "список", потом "корпус" → "все"
+name: "GloraX"
+key: "glorax"
+base_url: "https://glorax.com"
+strategy: "browser"
+
+links:
+  - url: "https://glorax.com/storage/lotList?type=storage&project=glorax-ekocity&withReserved=false&building=157"
+    complex_name: "Glorax Экосити"
+    city: "Казань"
+    notes: >
+      Выбрать плашку "список" (не "схема").
+      Нажать "корпус" → выбрать "все".
+      Данные о корпусе и ЖК перенести в таблицу.
+      Прожимать "показать ещё".
