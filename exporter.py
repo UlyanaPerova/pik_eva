@@ -35,26 +35,35 @@ from parsers.base import (
 )
 
 OUTPUT_DIR = PROJECT_DIR / "output"
-BASELINE_PATH = DATA_DIR / "baseline_ids.json"
 
 
 def _load_or_create_baseline(items: list[StorehouseItem]) -> set[str]:
     """
-    Загрузить baseline (ID кладовок из первого парсинга).
-    Если файла нет — создать из текущих items.
+    Загрузить baseline (ID кладовок из первого парсинга) для каждого сайта отдельно.
+    Файлы: data/baseline_pik.json, data/baseline_akbarsdom.json и т.д.
     """
-    if BASELINE_PATH.exists():
-        with open(BASELINE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return set(data)
-
-    # Первый запуск — сохраняем текущие ID как baseline
-    ids = [it.item_id for it in items]
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(BASELINE_PATH, "w", encoding="utf-8") as f:
-        json.dump(ids, f)
-    logger.info("Создан baseline: %d кладовок", len(ids))
-    return set(ids)
+    all_baseline: set[str] = set()
+
+    # Группируем items по сайтам
+    sites_items: dict[str, list[str]] = {}
+    for it in items:
+        sites_items.setdefault(it.site, []).append(it.item_id)
+
+    for site, item_ids in sites_items.items():
+        baseline_path = DATA_DIR / f"baseline_{site}.json"
+        if baseline_path.exists():
+            with open(baseline_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            all_baseline.update(data)
+        else:
+            # Первый запуск этого сайта — сохраняем текущие ID
+            with open(baseline_path, "w", encoding="utf-8") as f:
+                json.dump(item_ids, f)
+            logger.info("Создан baseline %s: %d кладовок", site, len(item_ids))
+            all_baseline.update(item_ids)
+
+    return all_baseline
 
 # ── Стили ────────────────────────────────────────────
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -144,6 +153,19 @@ FLAT_COLUMNS = [
 FCOL = len(FLAT_COLUMNS)
 
 
+def _natural_sort_key(text: str):
+    """Натуральная сортировка: 'ПК-2' < 'ПК-10', 'Корпус 1.1' < 'Корпус 1.2' < 'Корпус 2'."""
+    import re as _re
+    parts = _re.split(r'(\d+(?:\.\d+)?)', text.lower())
+    result = []
+    for part in parts:
+        try:
+            result.append(float(part))
+        except ValueError:
+            result.append(part)
+    return result
+
+
 def _sort_key(it: StorehouseItem):
     try:
         num = int(it.item_number) if it.item_number else 999999
@@ -153,7 +175,7 @@ def _sort_key(it: StorehouseItem):
         it.city.lower(),
         it.site.lower(),
         it.complex_name.lower(),
-        it.building.lower(),
+        _natural_sort_key(it.building),
         num,
     )
 
@@ -261,10 +283,9 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             # Данные
             for i, item in enumerate(complex_items):
                 is_last = i == len(complex_items) - 1
-                is_last_in_building = (
-                    is_last
-                    or complex_items[i].building != complex_items[i + 1].building
-                )
+                cur_bld = complex_items[i].building.split("||")[0].strip()
+                next_bld = complex_items[i + 1].building.split("||")[0].strip() if not is_last else ""
+                is_last_in_building = is_last or cur_bld != next_bld
 
                 storehouse_count = counts[count_key(item)]
                 try:
@@ -272,8 +293,16 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                 except ValueError:
                     number_val = item.item_number or ""
 
+                # Разделяем building||секция (если есть)
+                building_display = item.building
+                building_note = None
+                if "||" in item.building:
+                    parts = item.building.split("||", 1)
+                    building_display = parts[0].strip()
+                    building_note = parts[1].strip()
+
                 row_data = [
-                    item.building,
+                    building_display,
                     storehouse_count,
                     number_val,
                     item.area,
@@ -288,6 +317,10 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                     cell.font = DATA_FONT
                     cell.alignment = DATA_ALIGN
                     cell.border = THIN_BORDER
+
+                # Примечание к корпусу (секция)
+                if building_note:
+                    ws.cell(row=row, column=1).comment = Comment(building_note, "Parser")
 
                 # Форматы
                 ws.cell(row=row, column=4).number_format = '0.0'
@@ -439,7 +472,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             number_val = item.item_number or ""
 
         cur_complex = (item.city, item.site, item.complex_name)
-        cur_building = (item.city, item.site, item.complex_name, item.building)
+        cur_building = (item.city, item.site, item.complex_name, item.building.split("||")[0].strip())
 
         # Фиксируем конец предыдущего ЖК
         if cur_complex != prev_complex and prev_complex is not None:
@@ -455,11 +488,19 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         prev_complex = cur_complex
         prev_building = cur_building
 
+        # Разделяем building||секция (если есть)
+        building_display = item.building
+        building_note = None
+        if "||" in item.building:
+            parts = item.building.split("||", 1)
+            building_display = parts[0].strip()
+            building_note = parts[1].strip()
+
         row_data = [
             item.city,
             display_name,
             item.complex_name,
-            item.building,
+            building_display,
             storehouse_count,
             number_val,
             item.area,
@@ -474,6 +515,10 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGN
             cell.border = THIN_BORDER
+
+        # Примечание к корпусу (секция)
+        if building_note:
+            ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
 
         # Форматы
         ws.cell(row=row, column=7).number_format = '0.0'
@@ -543,7 +588,9 @@ def _add_new_item_comment(ws, row, col, item, previously_known, conn,
     Примечание «Добавлена от [дата]» — если кладовки НЕТ в baseline (первый парсинг).
     Зелёная заливка — только если кладовка новая в ЭТОМ парсинге.
     """
-    is_new_this_parse = item.item_id not in previously_known
+    # Первый запуск (previously_known пуст) — ничего не помечаем
+    is_first_run = len(previously_known) == 0
+    is_new_this_parse = (not is_first_run) and (item.item_id not in previously_known)
     is_after_baseline = item.item_id not in baseline_ids
 
     # Примечание — только для кладовок, появившихся после первого парсинга
