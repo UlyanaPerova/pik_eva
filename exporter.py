@@ -384,8 +384,6 @@ def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
     count_key = lambda it: (it.site, it.complex_name, it.building)
     counts = Counter(count_key(it) for it in items)
 
-    ws.sheet_properties.outlinePr.summaryBelow = False
-
     # Заголовки
     for col_idx, col_name in enumerate(FLAT_COLUMNS, start=1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
@@ -420,12 +418,11 @@ def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
             complex_ranges.append((cur_complex_start, row - 1))
             cur_complex_start = row
 
-        # Разделитель корпусов — жирная нижняя граница на предыдущей строке
+        # Разделитель корпусов — жирная граница только на столбце «Корпус» (col 4)
         if cur_building != prev_building and prev_building is not None:
             if cur_complex == prev_complex:  # не между ЖК, а внутри
                 prev_row = row - 1
-                for c in range(1, FCOL + 1):
-                    ws.cell(row=prev_row, column=c).border = BUILDING_BOTTOM
+                ws.cell(row=prev_row, column=4).border = BUILDING_BOTTOM
 
         prev_complex = cur_complex
         prev_building = cur_building
@@ -500,13 +497,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
             for c in range(1, FCOL + 1):
                 ws.cell(row=ce, column=c).border = thick_bottom
 
-    # Группировка строк по ЖК (outline)
-    for cs, ce in complex_ranges:
-        if ce > cs:
-            # Группируем все строки ЖК кроме первой (первая — summary)
-            ws.row_dimensions.group(cs + 1, ce, outline_level=1)
-
-    # Автофильтр
+    # Автофильтр (для скрытия ЖК — фильтр по столбцу «ЖК»)
     if last_row > 1:
         ws.auto_filter.ref = f"A1:{get_column_letter(FCOL)}{last_row}"
 
