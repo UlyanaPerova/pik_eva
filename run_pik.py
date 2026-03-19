@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from parsers.base import init_db, save_items, backup_db, validate_items, logger
+from parsers.base import (
+    init_db, save_items, backup_db, validate_items,
+    get_all_known_ids, logger,
+)
 from parsers.pik import PikParser
 from exporter import export_xlsx
 
@@ -40,12 +43,15 @@ async def main() -> int:
         if warnings:
             logger.warning("Обнаружено %d предупреждений валидации", len(warnings))
 
+        # Запоминаем ID, которые были до сохранения (чтобы пометить новые)
+        previously_known = get_all_known_ids(conn, "pik")
+
         # Сохранение в БД
         updated = save_items(conn, items)
         logger.info("Обновлено записей в БД: %d", updated)
 
-        # Экспорт xlsx
-        output_path = export_xlsx(items, conn)
+        # Экспорт xlsx — передаём previously_known, чтобы новые были помечены
+        output_path = export_xlsx(items, conn, previously_known=previously_known)
         logger.info("Файл готов: %s", output_path)
 
         # Краткая статистика

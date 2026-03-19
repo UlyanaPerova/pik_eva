@@ -27,12 +27,34 @@ from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+import json
+
 from parsers.base import (
     StorehouseItem, get_price_history, get_first_seen_date,
-    get_all_known_ids, logger, PROJECT_DIR,
+    get_all_known_ids, logger, PROJECT_DIR, DATA_DIR,
 )
 
 OUTPUT_DIR = PROJECT_DIR / "output"
+BASELINE_PATH = DATA_DIR / "baseline_ids.json"
+
+
+def _load_or_create_baseline(items: list[StorehouseItem]) -> set[str]:
+    """
+    Загрузить baseline (ID кладовок из первого парсинга).
+    Если файла нет — создать из текущих items.
+    """
+    if BASELINE_PATH.exists():
+        with open(BASELINE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return set(data)
+
+    # Первый запуск — сохраняем текущие ID как baseline
+    ids = [it.item_id for it in items]
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(BASELINE_PATH, "w", encoding="utf-8") as f:
+        json.dump(ids, f)
+    logger.info("Создан baseline: %d кладовок", len(ids))
+    return set(ids)
 
 # ── Стили ────────────────────────────────────────────
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -48,7 +70,8 @@ DATA_FONT = Font(name="Calibri", size=11)
 DATA_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 LINK_FONT = Font(name="Calibri", size=11, color="0563C1", underline="single")
-NEW_ITEM_FONT = Font(name="Calibri", size=11, color="2E7D32")
+NEW_ITEM_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+NEW_ITEM_LINK_FONT = Font(name="Calibri", size=11, color="0563C1", underline="single")
 
 TOTAL_FONT = Font(name="Calibri", size=11, bold=True)
 COMPLEX_TOTAL_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
@@ -139,6 +162,7 @@ def export_xlsx(
     items: list[StorehouseItem],
     conn: sqlite3.Connection,
     filename: str | None = None,
+    previously_known: set[str] | None = None,
 ) -> Path:
     """Создать xlsx с двумя листами."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,19 +177,23 @@ def export_xlsx(
     output_path = OUTPUT_DIR / filename
 
     # Определяем новые кладовки (которых раньше не было в БД)
-    sites = set(it.site for it in items)
-    previously_known: set[str] = set()
-    for site in sites:
-        previously_known |= get_all_known_ids(conn, site)
+    if previously_known is None:
+        sites = set(it.site for it in items)
+        previously_known = set()
+        for site in sites:
+            previously_known |= get_all_known_ids(conn, site)
+
+    # Baseline — набор ID из самого первого парсинга
+    baseline_ids = _load_or_create_baseline(items)
 
     wb = Workbook()
 
     ws_pretty = wb.active
     ws_pretty.title = "Кладовки"
-    _fill_pretty_sheet(ws_pretty, items, conn, previously_known)
+    _fill_pretty_sheet(ws_pretty, items, conn, previously_known, baseline_ids)
 
     ws_flat = wb.create_sheet("Все данные")
-    _fill_flat_sheet(ws_flat, items, conn, previously_known)
+    _fill_flat_sheet(ws_flat, items, conn, previously_known, baseline_ids)
 
     wb.save(output_path)
     logger.info("xlsx сохранён: %s (%d кладовок)", output_path, len(items))
@@ -176,7 +204,7 @@ def export_xlsx(
 #  ЛИСТ 1: «Кладовки» — красивый
 # ══════════════════════════════════════════════════════
 
-def _fill_pretty_sheet(ws, items, conn, previously_known) -> None:
+def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
     sorted_items = sorted(items, key=_sort_key)
 
     city_groups = defaultdict(lambda: defaultdict(list))
@@ -292,7 +320,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known) -> None:
                     bc.comment.height = 30
 
                 # Новая кладовка — примечание на номере
-                _add_new_item_comment(ws, row, 3, item, previously_known, conn)
+                _add_new_item_comment(ws, row, 3, item, previously_known, conn, baseline_ids, total_cols=PCOL)
 
                 # Примечания цен
                 _add_price_comment(ws, row, 5, conn, item)
@@ -378,7 +406,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known) -> None:
 #  ЛИСТ 2: «Все данные» — плоская таблица
 # ══════════════════════════════════════════════════════
 
-def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
+def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
     sorted_items = sorted(items, key=_sort_key)
 
     count_key = lambda it: (it.site, it.complex_name, it.building)
@@ -473,7 +501,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
             bc.comment.height = 30
 
         # Новая кладовка
-        _add_new_item_comment(ws, row, 6, item, previously_known, conn)
+        _add_new_item_comment(ws, row, 6, item, previously_known, conn, baseline_ids, total_cols=FCOL)
 
         # Примечания цен
         _add_price_comment(ws, row, 8, conn, item)
@@ -509,23 +537,41 @@ def _fill_flat_sheet(ws, items, conn, previously_known) -> None:
 
 # ── Примечания ───────────────────────────────────────────
 
-def _add_new_item_comment(ws, row, col, item, previously_known, conn):
-    """Примечание «Добавлена от [дата]» для новых кладовок."""
-    if item.item_id in previously_known:
-        # Не новая — была в БД до текущего парсинга
-        return
+def _add_new_item_comment(ws, row, col, item, previously_known, conn,
+                          baseline_ids, total_cols=None):
+    """
+    Примечание «Добавлена от [дата]» — если кладовки НЕТ в baseline (первый парсинг).
+    Зелёная заливка — только если кладовка новая в ЭТОМ парсинге.
+    """
+    is_new_this_parse = item.item_id not in previously_known
+    is_after_baseline = item.item_id not in baseline_ids
 
-    # Новая кладовка — ещё не сохранена в БД
-    from datetime import datetime
-    date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
-    cell = ws.cell(row=row, column=col)
-    cell.comment = Comment(
-        f"Добавлена от {date_str}", "Парсер кладовок"
-    )
-    cell.comment.width = 200
-    cell.comment.height = 30
-    # Зелёный шрифт — выделить новую
-    cell.font = NEW_ITEM_FONT
+    # Примечание — только для кладовок, появившихся после первого парсинга
+    if is_after_baseline:
+        first_seen = get_first_seen_date(conn, item.site, item.item_id)
+        if first_seen:
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(first_seen)
+                date_str = dt.strftime("%d.%m.%Y %H:%M")
+            except (ValueError, TypeError):
+                date_str = first_seen[:16]
+        else:
+            from datetime import datetime as _dt
+            date_str = _dt.now().strftime("%d.%m.%Y %H:%M")
+
+        cell = ws.cell(row=row, column=col)
+        cell.comment = Comment(
+            f"Добавлена от {date_str}", "Парсер кладовок"
+        )
+        cell.comment.width = 200
+        cell.comment.height = 30
+
+    # Зелёная заливка — только для новых в этом парсинге
+    if is_new_this_parse:
+        ncols = total_cols or ws.max_column
+        for c in range(1, ncols + 1):
+            ws.cell(row=row, column=c).fill = NEW_ITEM_FILL
 
 
 def _add_price_comment(ws, row, col, conn, item):
