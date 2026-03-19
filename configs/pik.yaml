@@ -1,17 +1,22 @@
 # ПИК — застройщик
-# Стратегия: browser (Playwright headless) — нужно прожимать "показать ещё"
+# Данные из __NEXT_DATA__ (JSON в HTML), httpx
 name: "ПИК"
 key: "pik"
 base_url: "https://www.pik.ru"
-strategy: "browser"
+strategy: "api"
 
 links:
   - url: "https://www.pik.ru/search/kazan/siberovo/storehouse"
     complex_name: "Сибирово"
     city: "Казань"
-    notes: "Прожимать 'показать ещё' требуется"
+    # Корпус 1 делится на 1.1 (секции 1-4) и 1.2 (секции 5+)
+    building_split:
+      "Корпус 1":
+        - sub_name: "Корпус 1.1"
+          sections: [1, 2, 3, 4]
+        - sub_name: "Корпус 1.2"
+          sections: [5, 6, 7]
 
   - url: "https://www.pik.ru/search/kazan/noksapark/storehouse"
     complex_name: "Нокса-Парк"
     city: "Казань"
-    notes: "Прожимать 'показать ещё' требуется"

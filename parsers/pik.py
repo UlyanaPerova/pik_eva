@@ -2,8 +2,9 @@
 Парсер кладовок ПИК (pik.ru).
 
 Стратегия: извлечение данных из __NEXT_DATA__ (JSON в HTML).
-Все кладовки доступны в searchService без необходимости кликать «Показать ещё».
-Корпус определяется через regex-поиск объекта "bulk" рядом с каждым flat ID.
+Все кладовки доступны в filteredChessplan.data.bulks без «Показать ещё».
+Секция определяется через структуру bulks → sections → floors → flats.
+Корпус 1 Сибирово делится на 1.1 (секции 1-4) и 1.2 (секции 5+) через конфиг.
 """
 from __future__ import annotations
 
@@ -47,9 +48,12 @@ class PikParser(BaseParser):
                 url = link_cfg["url"]
                 complex_name = link_cfg["complex_name"]
                 city = link_cfg.get("city", "")
+                building_split = link_cfg.get("building_split", {})
                 self.log.info("Парсинг: %s (%s)", complex_name, url)
                 try:
-                    items = await self._parse_page(client, url, complex_name, city)
+                    items = await self._parse_page(
+                        client, url, complex_name, city, building_split
+                    )
                     all_items.extend(items)
                     self.log.info("  → %d кладовок", len(items))
                 except Exception as exc:
@@ -61,7 +65,12 @@ class PikParser(BaseParser):
     # ── private ───────────────────────────────────────────
 
     async def _parse_page(
-        self, client: httpx.AsyncClient, url: str, complex_name: str, city: str,
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        complex_name: str,
+        city: str,
+        building_split: dict,
     ) -> list[StorehouseItem]:
         """Загрузить HTML, извлечь __NEXT_DATA__, спарсить кладовки."""
         resp = await client.get(url)
@@ -78,27 +87,27 @@ class PikParser(BaseParser):
 
         next_data = json.loads(m.group(1))
         state = next_data["props"]["pageProps"]["initialState"]
+        search = state["searchService"]
 
-        # 2. Получаем список кладовок из chessplan
-        chessplan = state["searchService"]["chessplan"]
-        flats = chessplan.get("flats", [])
+        # 2. Строим маппинг flat_id → (bulk_name, section_name, section_number)
+        #    через filteredChessplan.data.bulks → sections → floors → flats
+        flat_map = self._build_flat_map(search)
+        self.log.debug("  Привязано к секциям: %d", len(flat_map))
+
+        # 3. Получаем список кладовок из chessplan.flats (полные данные)
+        flats = search["chessplan"].get("flats", [])
         self.log.debug("  chessplan.flats: %d шт.", len(flats))
 
         if not flats:
             self.log.warning("  Нет данных в chessplan.flats")
             return []
 
-        # 3. Строим маппинг flat_id → корпус
-        #    Рекурсивный обход JSON — надёжнее regex
-        flat_to_bulk = self._build_flat_bulk_map(state["searchService"])
-        self.log.debug("  Привязано к корпусам: %d из %d", len(flat_to_bulk), len(flats))
-
         # 4. Собираем StorehouseItem
         base_url = self.config["base_url"].rstrip("/")
         items: list[StorehouseItem] = []
 
         for flat in flats:
-            flat_id = flat["id"]
+            flat_id = str(flat["id"])
             status = flat.get("status", "")
 
             # Пропускаем проданные/забронированные
@@ -113,9 +122,21 @@ class PikParser(BaseParser):
             number = str(flat.get("number", "")) or None
             item_url = f"{base_url}/storehouse/{flat_id}"
 
-            # Корпус
-            bulk_info = flat_to_bulk.get(str(flat_id))
-            building = bulk_info[1] if bulk_info else "Не определён"
+            # Корпус + секция из маппинга
+            info = flat_map.get(flat_id)
+            if info:
+                bulk_name = info["bulk_name"]
+                section_name = info["section_name"]
+                section_number = info["section_number"]
+            else:
+                bulk_name = "Не определён"
+                section_name = None
+                section_number = None
+
+            # Разделение корпуса по конфигу (например, Корпус 1 → 1.1 / 1.2)
+            building = self._resolve_building(
+                bulk_name, section_number, building_split
+            )
 
             # Скидка
             discount_percent = None
@@ -126,12 +147,12 @@ class PikParser(BaseParser):
             elif discount and discount > 0:
                 discount_percent = discount
 
-            items.append(StorehouseItem(
+            item = StorehouseItem(
                 site=self.site_key,
                 city=city,
                 complex_name=complex_name,
                 building=building,
-                item_id=str(flat_id),
+                item_id=flat_id,
                 area=area,
                 price=price,
                 price_per_meter=meter_price,
@@ -139,7 +160,10 @@ class PikParser(BaseParser):
                 item_number=number,
                 original_price=original_price,
                 discount_percent=discount_percent,
-            ))
+            )
+            # Сохраняем секцию для примечания
+            item._section_name = section_name
+            items.append(item)
 
         # Лог по корпусам
         building_counts = Counter(i.building for i in items)
@@ -149,42 +173,79 @@ class PikParser(BaseParser):
         return items
 
     @staticmethod
-    def _build_flat_bulk_map(search_state: dict) -> dict[str, tuple[str, str]]:
+    def _build_flat_map(search_state: dict) -> dict[str, dict]:
         """
-        Построить маппинг flat_id → (bulk_id, bulk_name).
-
-        Рекурсивно обходит JSON searchService. Когда встречает объект
-        с ключом "bulk" (содержащий "id" и "name"), запоминает его
-        и привязывает ко всем дочерним объектам с "id".
+        Построить маппинг flat_id → {bulk_name, section_name, section_number}
+        через filteredChessplan.data.bulks → sections → floors → flats.
         """
-        result: dict[str, tuple[str, str]] = {}
+        result: dict[str, dict] = {}
 
-        def walk(obj, current_bulk=None):
-            if isinstance(obj, dict):
-                # Если у объекта есть "bulk" — обновляем текущий корпус
-                bulk = obj.get("bulk")
-                if isinstance(bulk, dict) and "name" in bulk and "id" in bulk:
-                    current_bulk = bulk
+        fc = search_state.get("filteredChessplan", {})
+        data = fc.get("data", {})
+        bulks = data.get("bulks", [])
 
-                # Если у объекта есть "id" и известен корпус — сохраняем
-                flat_id = obj.get("id")
-                if flat_id is not None and current_bulk:
-                    fid = str(flat_id)
-                    if fid not in result:
-                        result[fid] = (
-                            str(current_bulk["id"]),
-                            current_bulk["name"],
-                        )
+        for bulk in bulks:
+            if not isinstance(bulk, dict):
+                continue
+            bulk_name = bulk.get("name", "")
+            sections = bulk.get("sections", [])
 
-                for v in obj.values():
-                    walk(v, current_bulk)
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                section_name = section.get("name", "")
+                section_number = section.get("number")
 
-            elif isinstance(obj, list):
-                for item in obj:
-                    walk(item, current_bulk)
+                floors = section.get("floors", {})
+                # floors может быть dict (ключ — номер этажа) или list
+                floor_list = (
+                    floors.values() if isinstance(floors, dict)
+                    else floors if isinstance(floors, list)
+                    else []
+                )
 
-        walk(search_state)
+                for floor in floor_list:
+                    if not isinstance(floor, dict):
+                        continue
+                    for flat in floor.get("flats", []):
+                        if isinstance(flat, dict) and "id" in flat:
+                            fid = str(flat["id"])
+                            if fid not in result:
+                                result[fid] = {
+                                    "bulk_name": bulk_name,
+                                    "section_name": section_name,
+                                    "section_number": section_number,
+                                }
+
         return result
+
+    @staticmethod
+    def _resolve_building(
+        bulk_name: str,
+        section_number: int | None,
+        building_split: dict,
+    ) -> str:
+        """
+        Применить разделение корпуса из конфига.
+
+        Пример building_split:
+          "Корпус 1":
+            - sub_name: "Корпус 1.1"
+              sections: [1, 2, 3, 4]
+            - sub_name: "Корпус 1.2"
+              sections: [5, 6, 7]
+        """
+        if not building_split or bulk_name not in building_split:
+            return bulk_name
+
+        if section_number is None:
+            return bulk_name
+
+        for rule in building_split[bulk_name]:
+            if section_number in rule["sections"]:
+                return rule["sub_name"]
+
+        return bulk_name
 
 
 # ── Точка входа для отдельного запуска ────────────────────
@@ -203,7 +264,15 @@ async def main():
     print(f"Найдено кладовок: {len(items)}")
     print(f"{'='*60}")
     for (cname, bld), group in sorted(groups.items()):
-        print(f"\n  {cname} / {bld}: {len(group)} шт.")
+        # Показать секции
+        sections = set()
+        for it in group:
+            sec = getattr(it, '_section_name', None)
+            if sec:
+                sections.add(sec)
+        sec_info = f" ({', '.join(sorted(sections))})" if sections else ""
+
+        print(f"\n  {cname} / {bld}: {len(group)} шт.{sec_info}")
         for item in sorted(group, key=lambda x: int(x.item_number or 0))[:3]:
             print(f"    №{item.item_number or '?'}: {item.area} м² | "
                   f"{item.price:,.0f} ₽ | {item.price_per_meter:,.0f} ₽/м²")
