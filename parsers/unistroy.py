@@ -137,8 +137,7 @@ class UnistroyParser(BaseParser):
                     area=area,
                     price=price,
                     price_per_meter=price_per_meter,
-                    # На сайте нет страниц отдельных кладовок — ссылка на ЖК
-                    url=f"https://unistroyrf.ru/objects/{complex_code}/",
+                    url=f"https://unistroyrf.ru/search/placement/{uid}/",
                     item_number=apart_number,
                 ))
             except (ValueError, KeyError) as e:
