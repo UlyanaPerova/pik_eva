@@ -126,6 +126,7 @@ class UnistroyParser(BaseParser):
                 building = house if house else object_name
 
                 apart_number = str(apt.get("apart_number", ""))
+                complex_code = apt.get("complex_code", "")
 
                 items.append(StorehouseItem(
                     site=self.site_key,
@@ -136,7 +137,8 @@ class UnistroyParser(BaseParser):
                     area=area,
                     price=price,
                     price_per_meter=price_per_meter,
-                    url=f"https://unistroyrf.ru/storage/",
+                    # На сайте нет страниц отдельных кладовок — ссылка на ЖК
+                    url=f"https://unistroyrf.ru/objects/{complex_code}/",
                     item_number=apart_number,
                 ))
             except (ValueError, KeyError) as e:
