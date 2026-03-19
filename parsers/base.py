@@ -158,6 +158,25 @@ def get_price_history(
     return rows
 
 
+def get_first_seen_date(conn: sqlite3.Connection, site: str, item_id: str) -> str | None:
+    """Вернуть дату первого появления кладовки в БД."""
+    row = conn.execute(
+        """SELECT parsed_at FROM prices
+           WHERE site = ? AND item_id = ?
+           ORDER BY parsed_at ASC LIMIT 1""",
+        (site, item_id),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def get_all_known_ids(conn: sqlite3.Connection, site: str) -> set[str]:
+    """Все item_id, которые когда-либо были в БД для данного сайта."""
+    rows = conn.execute(
+        "SELECT DISTINCT item_id FROM prices WHERE site = ?", (site,)
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
 def get_latest_items(conn: sqlite3.Connection, site: str) -> list[dict]:
     """Получить последние актуальные данные по каждой кладовке сайта."""
     rows = conn.execute(
