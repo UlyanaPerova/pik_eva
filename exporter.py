@@ -25,6 +25,7 @@ from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from parsers.base import (
     StorehouseItem, get_price_history, get_first_seen_date,
@@ -300,6 +301,31 @@ def _fill_pretty_sheet(ws, items, conn, previously_known) -> None:
                 row += 1
 
             block_end = row - 1
+            header_row = block_start - 1  # строка с шапкой колонок
+
+            # Excel Table — сортировка и фильтр для каждого блока ЖК
+            if block_end >= block_start:
+                # Уникальное имя таблицы (без пробелов и спецсимволов)
+                import re as _re
+                safe_name = _re.sub(r'[^A-Za-z0-9а-яА-ЯёЁ]', '', complex_name)
+                table_name = f"T_{site}_{safe_name}_{jk_row}"
+                # Имена таблиц не могут содержать кириллицу в некоторых Excel
+                table_name = _re.sub(r'[^A-Za-z0-9_]', '', table_name)
+                if not table_name[0].isalpha():
+                    table_name = "T" + table_name
+
+                table_ref = (
+                    f"A{header_row}:{get_column_letter(PCOL)}{block_end}"
+                )
+                tab = Table(displayName=table_name, ref=table_ref)
+                tab.tableStyleInfo = TableStyleInfo(
+                    name="TableStyleLight9",
+                    showFirstColumn=False,
+                    showLastColumn=False,
+                    showRowStripes=True,
+                    showColumnStripes=False,
+                )
+                ws.add_table(tab)
 
             # Группировка ЖК (outline)
             group_start = jk_row + 1
