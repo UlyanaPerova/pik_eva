@@ -33,10 +33,6 @@ class UnistroyParser(BaseParser):
             items.extend(page_items)
 
         self.log.info("Итого %s: %d кладовок", self.site_name, len(items))
-        self.log.warning(
-            "⚠ Без авторизации доступно не более 8 кладовок на объект. "
-            "Всего на сайте ~575, загружено %d.", len(items)
-        )
         return items
 
     async def _parse_with_playwright(
@@ -75,6 +71,32 @@ class UnistroyParser(BaseParser):
             self.log.info("Загрузка %s ...", url)
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(10000)
+            self.log.info("  После загрузки: %d кладовок", len(raw_apartments))
+
+            # Кликаем все кнопки «Показать ещё N из M клад.» через JS
+            for click_num in range(100):
+                clicked = await page.evaluate("""() => {
+                    const buttons = document.querySelectorAll('button');
+                    for (const btn of buttons) {
+                        const text = btn.textContent.trim();
+                        if (text.includes('Показать') && text.includes('из') && text.includes('клад')) {
+                            btn.scrollIntoView();
+                            btn.click();
+                            return text;
+                        }
+                    }
+                    return null;
+                }""")
+
+                if not clicked:
+                    break
+
+                await page.wait_for_timeout(2000)
+
+                if click_num % 10 == 9:
+                    self.log.info("    Клик %d: %d кладовок", click_num + 1, len(raw_apartments))
+
+            self.log.info("  Кликов «Показать ещё»: %d, всего: %d", click_num, len(raw_apartments))
 
             await browser.close()
 
