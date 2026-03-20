@@ -103,14 +103,13 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
             cell.alignment = data_align
             cell.border = thin_border
 
-        # Примечания с расшифровкой кварталов
-        for qcol, qval in [(4, info.commissioning), (5, info.keys_date)]:
-            hint = _quarter_comment(qval)
-            if hint:
-                c = ws.cell(row=row, column=qcol)
-                c.comment = Comment(hint, "Parser")
-                c.comment.width = 200
-                c.comment.height = 30
+        # Примечание с расшифровкой квартала (только для ввода в эксплуатацию)
+        hint = _quarter_comment(info.commissioning)
+        if hint:
+            c = ws.cell(row=row, column=4)
+            c.comment = Comment(hint, "Parser")
+            c.comment.width = 200
+            c.comment.height = 30
 
     # Ширина колонок
     widths = [12, 25, 18, 20, 18, 22, 16, 14, 14]
