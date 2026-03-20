@@ -17,6 +17,7 @@ from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side, numbers
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 import json
 
@@ -351,6 +352,30 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                     _add_ppm_comment(ws, row, 8, conn, item)
 
                     row += 1
+
+                block_end = row - 1
+                header_row = block_start - 1  # строка с шапкой колонок
+
+                # Excel Table — сортировка и фильтр для каждого блока типа квартиры
+                if block_end >= block_start:
+                    safe_complex = re.sub(r'[^A-Za-z0-9]', '', complex_name)
+                    safe_site = re.sub(r'[^A-Za-z0-9]', '', site)
+                    table_name = f"T_{safe_site}_{safe_complex}_r{rooms_num}_{jk_row}"
+                    if not table_name[0].isalpha():
+                        table_name = "T" + table_name
+
+                    table_ref = (
+                        f"A{header_row}:{get_column_letter(PCOL)}{block_end}"
+                    )
+                    tab = Table(displayName=table_name, ref=table_ref)
+                    tab.tableStyleInfo = TableStyleInfo(
+                        name="TableStyleLight9",
+                        showFirstColumn=False,
+                        showLastColumn=False,
+                        showRowStripes=True,
+                        showColumnStripes=False,
+                    )
+                    ws.add_table(tab)
 
             # Группировка ЖК (outline)
             group_start = jk_row + 1
