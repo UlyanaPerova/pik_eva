@@ -32,7 +32,7 @@ _QUARTER_END_DATES = {
     "IV": "31 декабря",
 }
 
-_QUARTER_RE = re.compile(r'(I{1,3}V?)\s*квартал\s*(\d{4})', re.IGNORECASE)
+_QUARTER_RE = re.compile(r'(I{1,3}V?)\s*(?:квартал|кв\.?)\s*(\d{4})', re.IGNORECASE)
 
 
 def _quarter_comment(text: str) -> str | None:
