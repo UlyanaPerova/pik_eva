@@ -242,6 +242,7 @@ class DomRfParser(BaseParser):
                 price_per_meter=price_per_meter,
                 url=url,
                 item_number=item_number,
+                developer=developer,
             )
         except (ValueError, KeyError, TypeError) as e:
             self.log.warning("Ошибка парсинга помещения: %s — %s", e, premise)

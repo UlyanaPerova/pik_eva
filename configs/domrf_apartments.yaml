@@ -1,30 +1,22 @@
 # ДОМ.РФ (наш.дом.рф) — ЕИСЖС
 # Стратегия: api — публичный API каталога новостроек
-# Данные: нежилые помещения (кладовки, келлеры, нежилые до 15 м²)
-# Endpoint: /portal-kn/api/kn/objects/{objectId}/flats?flatGroupType=premises
+# Данные: квартиры (тип «Квартира» и «Квартира-студия»)
+# Endpoint: /portal-kn/api/sales/portal/table?externalId={objectId}
+# Header info: /сервисы/api/object/{objectId}/sales_agg
 name: "ДОМ.РФ"
 key: "domrf"
 base_url: "https://xn--80az8a.xn--d1aqf.xn--p1ai"
 strategy: "api"
 
 api:
-  flats_endpoint: "/portal-kn/api/kn/objects/{object_id}/flats"
-  object_endpoint: "/сервисы/api/object/{object_id}"
-  page_size: 500
+  table_endpoint: "/portal-kn/api/sales/portal/table?externalId={object_id}"
+  sales_agg_endpoint: "/сервисы/api/object/{object_id}/sales_agg"
+  sale_graph_endpoint: "/сервисы/api/object/{object_id}/sale_graph?type=apartments"
 
-# Типы помещений, которые нас интересуют:
-#   - "Кладовая" 
-#   - "Келлер" 
-#   - "Нежилое помещение" (без уточнения) — берём только если площадь <= 15 м²
-# НЕ берём: "Нежилое помещение для коммерческого использования" и подобные
+# Типы квартир, которые нас интересуют
 target_types:
-  always:
-    - "Кладовая"
-    - "Келлер"
-  by_area:
-    max_area: 15
-    types:
-      - "Нежилое помещение"
+  - "Квартира"
+  - "Квартира-студия"
 
 links:
   # ── Ак Барс Дом ────────────────────────────────────────

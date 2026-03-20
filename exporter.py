@@ -173,9 +173,10 @@ def _sort_key(it: StorehouseItem):
         num = int(it.item_number) if it.item_number else 999999
     except ValueError:
         num = 999999
+    developer = getattr(it, 'developer', '') or ''
     return (
         it.city.lower(),
-        it.site.lower(),
+        developer.lower(),
         it.complex_name.lower(),
         _natural_sort_key(it.building),
         num,
@@ -233,7 +234,8 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
     city_groups = defaultdict(lambda: defaultdict(list))
     for item in sorted_items:
-        city_groups[item.city][(item.site, item.complex_name)].append(item)
+        developer = getattr(item, 'developer', '') or ''
+        city_groups[item.city][(developer, item.site, item.complex_name)].append(item)
 
     count_key = lambda it: (it.site, it.complex_name, it.building)
     counts = Counter(count_key(it) for it in items)
@@ -253,9 +255,9 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         ws.row_dimensions[row].height = 30
         row += 1
 
-        for (site, complex_name) in sorted(city_groups[city].keys()):
-            complex_items = city_groups[city][(site, complex_name)]
-            display_name = SITE_NAMES.get(site, site)
+        for (developer, site, complex_name) in sorted(city_groups[city].keys()):
+            complex_items = city_groups[city][(developer, site, complex_name)]
+            display_name = developer or SITE_NAMES.get(site, site)
             total_in_complex = len(complex_items)
 
             # ЖК
@@ -415,11 +417,14 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
     row += 1
 
     complex_counts = defaultdict(int)
+    developer_map: dict[tuple, str] = {}
     for item in items:
         complex_counts[(item.city, item.site, item.complex_name)] += 1
+        if item.developer:
+            developer_map[(item.site, item.complex_name)] = item.developer
 
     for (city, site, cname), total in sorted(complex_counts.items()):
-        display_name = SITE_NAMES.get(site, site)
+        display_name = developer_map.get((site, cname)) or SITE_NAMES.get(site, site)
         for col, val in [(1, city), (2, display_name), (3, cname), (4, total)]:
             cell = ws.cell(row=row, column=col, value=val)
             cell.font = TOTAL_FONT
@@ -469,7 +474,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
     for i, item in enumerate(sorted_items):
         row = i + 2
-        display_name = SITE_NAMES.get(item.site, item.site)
+        display_name = item.developer or SITE_NAMES.get(item.site, item.site)
         storehouse_count = counts[count_key(item)]
 
         try:

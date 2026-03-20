@@ -77,6 +77,7 @@ SITE_NAMES = {
     "smu88": "СМУ-88",
     "glorax": "GloraX",
     "unistroy": "УниСтрой",
+    "domrf": "ДОМ.РФ",
 }
 
 SITE_FILE_KEYS = {
@@ -85,6 +86,7 @@ SITE_FILE_KEYS = {
     "smu88": "SMU88",
     "glorax": "GloraX",
     "unistroy": "Unistroy",
+    "domrf": "DomRF",
 }
 
 # ── Колонки ──────────────────────────────────────────
@@ -95,6 +97,7 @@ PRETTY_COLUMNS = [
     "Номер",
     "Этаж",
     "Площадь\n(м²)",
+    "Жилая\nплощадь\n(м²)",
     "Цена (₽)",
     "Цена/м²\n(₽)",
     "Ссылка",
@@ -112,6 +115,7 @@ FLAT_COLUMNS = [
     "Номер",
     "Этаж",
     "Площадь (м²)",
+    "Жилая площадь (м²)",
     "Цена (₽)",
     "Цена/м² (₽)",
     "Ссылка",
@@ -136,8 +140,10 @@ def _sort_key(it: ApartmentItem):
         num = int(it.apartment_number) if it.apartment_number else 999999
     except ValueError:
         num = 999999
+    developer = (getattr(it, "developer", None) or "").lower()
     return (
         it.city.lower(),
+        developer,
         it.site.lower(),
         it.complex_name.lower(),
         it.rooms,
@@ -182,8 +188,11 @@ def export_apartments_xlsx(
     ws_flat = wb.create_sheet("Все данные")
     _fill_flat_sheet(ws_flat, items, conn, previously_known, baseline_ids)
 
-    ws_avg = wb.create_sheet("Средние цены")
-    _fill_avg_sheet(ws_avg, items)
+    # Лист «Средние цены» — только если есть квартиры с ценами (не для domrf)
+    has_priced = any(it.price > 0 for it in items)
+    if has_priced:
+        ws_avg = wb.create_sheet("Средние цены")
+        _fill_avg_sheet(ws_avg, items)
 
     wb.save(output_path)
     logger.info("xlsx сохранён: %s (%d квартир)", output_path, len(items))
@@ -197,10 +206,11 @@ def export_apartments_xlsx(
 def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
     sorted_items = sorted(items, key=_sort_key)
 
-    # Группировка: город → (сайт, ЖК) → тип квартиры → список
+    # Группировка: город → (застройщик, ЖК, сайт) → тип квартиры → список
     city_groups = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for item in sorted_items:
-        city_groups[item.city][(item.site, item.complex_name)][item.rooms].append(item)
+        dev = (getattr(item, "developer", None) or "").lower()
+        city_groups[item.city][(dev, item.complex_name, item.site)][item.rooms].append(item)
 
     # Подсчёт количества по (сайт, ЖК, корпус, тип)
     count_key = lambda it: (it.site, it.complex_name, it.building.split("||")[0].strip(), it.rooms)
@@ -220,13 +230,17 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         ws.row_dimensions[row].height = 30
         row += 1
 
-        for (site, complex_name) in sorted(city_groups[city].keys()):
-            rooms_groups = city_groups[city][(site, complex_name)]
-            display_name = SITE_NAMES.get(site, site)
+        for (dev_key, complex_name, site) in sorted(city_groups[city].keys()):
+            rooms_groups = city_groups[city][(dev_key, complex_name, site)]
+            first_item = next(iter(next(iter(rooms_groups.values()))))
+            dev = getattr(first_item, "developer", None)
             total_in_complex = sum(len(v) for v in rooms_groups.values())
 
             # ЖК
-            jk_text = f"{display_name}  —  {complex_name}  ({total_in_complex} квартир)"
+            if dev:
+                jk_text = f"{dev}  —  {complex_name}  ({total_in_complex} квартир)"
+            else:
+                jk_text = f"{complex_name}  ({total_in_complex} квартир)"
             jk_cell = ws.cell(row=row, column=1, value=jk_text)
             jk_cell.font = COMPLEX_FONT
             jk_cell.fill = COMPLEX_FILL
@@ -245,12 +259,16 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                 room_count = len(room_items)
 
                 # Средняя цена по типу
-                avg_price = sum(it.price for it in room_items) / room_count if room_count else 0
-                avg_ppm = sum(it.price_per_meter for it in room_items) / room_count if room_count else 0
+                priced_items = [it for it in room_items if it.price > 0]
+                avg_price = sum(it.price for it in priced_items) / len(priced_items) if priced_items else 0
+                avg_ppm = sum(it.price_per_meter for it in priced_items) / len(priced_items) if priced_items else 0
 
                 # Подзаголовок типа квартиры
-                type_text = (f"{rlabel}  ({room_count} шт.)  |  "
-                             f"ср. цена: {avg_price:,.0f} ₽  |  ср. цена/м²: {avg_ppm:,.0f} ₽")
+                if avg_price > 0:
+                    type_text = (f"{rlabel}  ({room_count} шт.)  |  "
+                                 f"ср. цена: {avg_price:,.0f} ₽  |  ср. цена/м²: {avg_ppm:,.0f} ₽")
+                else:
+                    type_text = f"{rlabel}  ({room_count} шт.)"
                 ws.cell(row=row, column=1, value=type_text).font = ROOM_TYPE_FONT
                 ws.cell(row=row, column=1).fill = ROOM_TYPE_FILL
                 ws.cell(row=row, column=1).alignment = Alignment(horizontal="left", vertical="center")
@@ -290,6 +308,11 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                         building_display = parts[0].strip()
                         building_note = parts[1].strip()
 
+                    display_price = item.price if item.price else ""
+                    display_ppm = item.price_per_meter if item.price_per_meter else ""
+
+                    living_area_val = item.living_area if item.living_area else ""
+
                     row_data = [
                         building_display,
                         item.rooms_label,
@@ -297,8 +320,9 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                         number_val,
                         item.floor,
                         item.area,
-                        item.price,
-                        item.price_per_meter,
+                        living_area_val,
+                        display_price,
+                        display_ppm,
                         "Открыть",
                         row - block_start + 1,
                     ]
@@ -313,18 +337,20 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                         ws.cell(row=row, column=1).comment = Comment(building_note, "Parser")
 
                     # Форматы
-                    ws.cell(row=row, column=6).number_format = '0.0'
-                    ws.cell(row=row, column=7).number_format = '#,##0'
+                    area_fmt = '0.00' if item.site == 'domrf' else '0.0'
+                    ws.cell(row=row, column=6).number_format = area_fmt
+                    ws.cell(row=row, column=7).number_format = area_fmt  # living area
                     ws.cell(row=row, column=8).number_format = '#,##0'
+                    ws.cell(row=row, column=9).number_format = '#,##0'
                     ws.cell(row=row, column=3).number_format = '0'
                     ws.cell(row=row, column=5).number_format = '0'
                     if isinstance(number_val, int):
                         ws.cell(row=row, column=4).number_format = '0'
-                    ws.cell(row=row, column=10).number_format = '0'
-                    ws.cell(row=row, column=10).font = Font(name="Calibri", size=9, color="BBBBBB")
+                    ws.cell(row=row, column=11).number_format = '0'
+                    ws.cell(row=row, column=11).font = Font(name="Calibri", size=9, color="BBBBBB")
 
                     # Ссылка
-                    lc = ws.cell(row=row, column=9)
+                    lc = ws.cell(row=row, column=10)
                     if item.url:
                         lc.hyperlink = item.url
                         lc.font = LINK_FONT
@@ -348,8 +374,8 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                                           baseline_ids, total_cols=PCOL)
 
                     # Примечания цен
-                    _add_price_comment(ws, row, 7, conn, item)
-                    _add_ppm_comment(ws, row, 8, conn, item)
+                    _add_price_comment(ws, row, 8, conn, item)
+                    _add_ppm_comment(ws, row, 9, conn, item)
 
                     row += 1
 
@@ -384,7 +410,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                 ws.row_dimensions.group(group_start, group_end, outline_level=1)
 
     # Ширины столбцов
-    col_widths = [16, 10, 10, 10, 8, 12, 14, 14, 12, 8]
+    col_widths = [16, 10, 10, 10, 8, 12, 12, 14, 14, 12, 8]
     for i, w in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -414,7 +440,8 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
     for i, item in enumerate(sorted_items):
         row = i + 2
-        display_name = SITE_NAMES.get(item.site, item.site)
+        dev = getattr(item, "developer", None)
+        display_name = dev if dev else ""
         apt_count = counts[count_key(item)]
 
         try:
@@ -455,6 +482,10 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             building_display = parts[0].strip()
             building_note = parts[1].strip()
 
+        display_price = item.price if item.price else ""
+        display_ppm = item.price_per_meter if item.price_per_meter else ""
+        living_area_val = item.living_area if item.living_area else ""
+
         row_data = [
             item.city,
             display_name,
@@ -465,8 +496,9 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             number_val,
             item.floor,
             item.area,
-            item.price,
-            item.price_per_meter,
+            living_area_val,
+            display_price,
+            display_ppm,
             "Открыть",
             i + 1,
         ]
@@ -481,18 +513,20 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
 
         # Форматы
-        ws.cell(row=row, column=9).number_format = '0.0'
-        ws.cell(row=row, column=10).number_format = '#,##0'
+        area_fmt = '0.00' if item.site == 'domrf' else '0.0'
+        ws.cell(row=row, column=9).number_format = area_fmt
+        ws.cell(row=row, column=10).number_format = area_fmt  # living area
         ws.cell(row=row, column=11).number_format = '#,##0'
+        ws.cell(row=row, column=12).number_format = '#,##0'
         ws.cell(row=row, column=6).number_format = '0'
         ws.cell(row=row, column=8).number_format = '0'
         if isinstance(number_val, int):
             ws.cell(row=row, column=7).number_format = '0'
-        ws.cell(row=row, column=13).number_format = '0'
-        ws.cell(row=row, column=13).font = Font(name="Calibri", size=9, color="BBBBBB")
+        ws.cell(row=row, column=14).number_format = '0'
+        ws.cell(row=row, column=14).font = Font(name="Calibri", size=9, color="BBBBBB")
 
         # Ссылка
-        lc = ws.cell(row=row, column=12)
+        lc = ws.cell(row=row, column=13)
         if item.url:
             lc.hyperlink = item.url
             lc.font = LINK_FONT
@@ -511,8 +545,8 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                               baseline_ids, total_cols=FCOL)
 
         # Примечания цен
-        _add_price_comment(ws, row, 10, conn, item)
-        _add_ppm_comment(ws, row, 11, conn, item)
+        _add_price_comment(ws, row, 11, conn, item)
+        _add_ppm_comment(ws, row, 12, conn, item)
 
     # Автофильтр
     last_row = len(sorted_items) + 1
@@ -520,7 +554,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         ws.auto_filter.ref = f"A1:{get_column_letter(FCOL)}{last_row}"
 
     # Ширина
-    flat_widths = [14, 16, 18, 16, 10, 10, 10, 8, 12, 14, 14, 12, 8]
+    flat_widths = [14, 16, 18, 16, 10, 10, 10, 8, 12, 12, 14, 14, 12, 8]
     for i, w in enumerate(flat_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

@@ -69,6 +69,7 @@ class StorehouseItem:
     item_number: Optional[str] = None      # номер кладовой (если есть)
     original_price: Optional[float] = None # цена без скидки (если есть)
     discount_percent: Optional[float] = None  # % скидки (если есть)
+    developer: Optional[str] = None        # застройщик (для domrf — из конфига)
 
 
 # ─── SQLite ──────────────────────────────────────────────

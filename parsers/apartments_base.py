@@ -91,6 +91,8 @@ class ApartmentItem:
     apartment_number: Optional[str] = None # номер квартиры (если есть)
     original_price: Optional[float] = None # цена без скидки (если есть)
     discount_percent: Optional[float] = None  # % скидки (если есть)
+    developer: Optional[str] = None        # застройщик (если задан в конфиге)
+    living_area: Optional[float] = None    # жилая площадь (м²)
 
     @property
     def rooms_label(self) -> str:
@@ -263,18 +265,22 @@ def validate_items(items: list[ApartmentItem]) -> list[str]:
         warnings.append("Парсер вернул 0 квартир!")
         return warnings
 
+    # Сайты без цен (дом.рф) — пропускаем проверки цен
+    sites_without_prices = {"domrf"}
+
     for item in items:
         prefix = f"[{item.site}/{item.item_id}]"
-        if item.price <= 0:
-            warnings.append(f"{prefix} Цена <= 0: {item.price}")
+        if item.site not in sites_without_prices:
+            if item.price <= 0:
+                warnings.append(f"{prefix} Цена <= 0: {item.price}")
+            if item.price_per_meter <= 0:
+                warnings.append(f"{prefix} Цена/м² <= 0: {item.price_per_meter}")
+            if item.price < 500_000:
+                warnings.append(f"{prefix} Подозрительно низкая цена: {item.price} ₽")
         if item.area <= 0:
             warnings.append(f"{prefix} Площадь <= 0: {item.area}")
-        if item.price_per_meter <= 0:
-            warnings.append(f"{prefix} Цена/м² <= 0: {item.price_per_meter}")
         if item.area > 300:
             warnings.append(f"{prefix} Подозрительно большая площадь: {item.area} м²")
-        if item.price < 500_000:
-            warnings.append(f"{prefix} Подозрительно низкая цена: {item.price} ₽")
         if item.rooms < 0 or item.rooms > 10:
             warnings.append(f"{prefix} Подозрительное кол-во комнат: {item.rooms}")
         if item.discount_percent and item.discount_percent > 50:
