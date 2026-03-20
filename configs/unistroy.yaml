@@ -14,3 +14,9 @@ links:
   - url: "https://unistroyrf.ru/storage/eyJjb3N0Ijp7Im1pbiI6IjIxNzAwMCIsIm1heCI6IjE0NjAwMDAifSwiY29tcGxleGVzIjpbXX0=/"
     city: "Казань"
     notes: "Выбрать 'Все комплексы' в фильтре ЖК"
+
+# ─── Квартиры ───────────────────────────────────────────
+apartment_links:
+  - url: "https://unistroyrf.ru/search/eyJmbG9vcnMiOnsibWluIjoxLCJtYXgiOjI1fSwiY29zdCI6eyJtaW4iOjYyOTQwMDAsIm1heCI6NTU1OTUwMDB9LCJzcXVhcmUiOnsibWluIjoyMSwibWF4IjoxNTV9LCJyb29tcyI6W10sInN1YnR5cGVzIjpbXSwiY29tcGxleGVzIjpbXSwicXVhcnRlcnMiOltdLCJvYmplY3RzIjpbXSwiYWR2YW50YWdlcyI6W119/"
+    city: "Казань"
+    notes: "Квартиры — все комплексы, все типы"

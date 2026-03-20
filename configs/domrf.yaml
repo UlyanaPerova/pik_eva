@@ -1,0 +1,37 @@
+# ДОМ.РФ (наш.дом.рф) — ЕИСЖС
+# Стратегия: api — публичный API каталога новостроек
+# Данные: нежилые помещения (кладовки, келлеры, нежилые до 15 м²)
+# Endpoint: /portal-kn/api/kn/objects/{objectId}/flats?flatGroupType=premises
+name: "ДОМ.РФ"
+key: "domrf"
+base_url: "https://xn--80az8a.xn--d1aqf.xn--p1ai"
+strategy: "api"
+
+api:
+  flats_endpoint: "/portal-kn/api/kn/objects/{object_id}/flats"
+  object_endpoint: "/сервисы/api/object/{object_id}"
+  page_size: 500
+
+# Типы помещений, которые нас интересуют:
+#   - "Кладовая" 
+#   - "Келлер" 
+#   - "Нежилое помещение" (без уточнения) — берём только если площадь <= 15 м²
+# НЕ берём: "Нежилое помещение для коммерческого использования" и подобные
+target_types:
+  always:
+    - "Кладовая"
+    - "Келлер"
+  by_area:
+    max_area: 15
+    types:
+      - "Нежилое помещение"
+
+links:
+  - object_id: 61962
+    complex_name: "Экосити"
+    developer: "GloraX"
+    city: "Казань"
+  - object_id: 68298
+    complex_name: "Московский"
+    developer: "GloraX"
+    city: "Казань"

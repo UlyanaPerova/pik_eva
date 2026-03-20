@@ -12,3 +12,8 @@ links:
 
 # Подгружать номер кладовки с детальной страницы (медленнее, но есть номер)
 fetch_detail_pages: true
+
+# ─── Квартиры ───────────────────────────────────────────
+apartment_links:
+  - url: "https://akbars-dom.ru/apartments/"
+    city: "Казань"

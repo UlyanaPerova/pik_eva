@@ -232,18 +232,22 @@ def validate_items(items: list[StorehouseItem]) -> list[str]:
         warnings.append("⚠ Парсер вернул 0 кладовок!")
         return warnings
 
+    # Сайты без цен (дом.рф) — пропускаем проверки цен
+    sites_without_prices = {"domrf"}
+
     for i, item in enumerate(items):
         prefix = f"[{item.site}/{item.item_id}]"
-        if item.price <= 0:
-            warnings.append(f"{prefix} Цена <= 0: {item.price}")
+        if item.site not in sites_without_prices:
+            if item.price <= 0:
+                warnings.append(f"{prefix} Цена <= 0: {item.price}")
+            if item.price_per_meter <= 0:
+                warnings.append(f"{prefix} Цена/м² <= 0: {item.price_per_meter}")
+            if item.price < 10_000:
+                warnings.append(f"{prefix} Подозрительно низкая цена: {item.price} ₽")
         if item.area <= 0:
             warnings.append(f"{prefix} Площадь <= 0: {item.area}")
-        if item.price_per_meter <= 0:
-            warnings.append(f"{prefix} Цена/м² <= 0: {item.price_per_meter}")
         if item.area > 100:
             warnings.append(f"{prefix} Подозрительно большая площадь: {item.area} м²")
-        if item.price < 10_000:
-            warnings.append(f"{prefix} Подозрительно низкая цена: {item.price} ₽")
         if item.discount_percent and item.discount_percent > 50:
             warnings.append(f"{prefix} Подозрительно большая скидка: {item.discount_percent}%")
         if not item.url:

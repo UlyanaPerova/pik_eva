@@ -113,6 +113,7 @@ SITE_NAMES = {
     "smu88": "СМУ-88",
     "glorax": "GloraX",
     "unistroy": "УниСтрой",
+    "domrf": "ДОМ.РФ",
 }
 
 SITE_FILE_KEYS = {
@@ -121,6 +122,7 @@ SITE_FILE_KEYS = {
     "smu88": "SMU88",
     "glorax": "GloraX",
     "unistroy": "Unistroy",
+    "domrf": "DomRF",
 }
 
 # ── Колонки ──────────────────────────────────────────
@@ -301,13 +303,17 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                     building_display = parts[0].strip()
                     building_note = parts[1].strip()
 
+                # Пустые цены (дом.рф) — пишем пустую строку вместо 0
+                display_price = item.price if item.price else ""
+                display_ppm = item.price_per_meter if item.price_per_meter else ""
+
                 row_data = [
                     building_display,
                     storehouse_count,
                     number_val,
                     item.area,
-                    item.price,
-                    item.price_per_meter,
+                    display_price,
+                    display_ppm,
                     "Открыть",
                     row - block_start + 1,
                 ]
@@ -323,7 +329,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                     ws.cell(row=row, column=1).comment = Comment(building_note, "Parser")
 
                 # Форматы
-                ws.cell(row=row, column=4).number_format = '0.0'
+                ws.cell(row=row, column=4).number_format = '0.00' if item.site == 'domrf' else '0.0'
                 ws.cell(row=row, column=5).number_format = '#,##0'
                 ws.cell(row=row, column=6).number_format = '#,##0'
                 if isinstance(number_val, int):
@@ -496,6 +502,10 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             building_display = parts[0].strip()
             building_note = parts[1].strip()
 
+        # Пустые цены (дом.рф) — пишем пустую строку вместо 0
+        display_price = item.price if item.price else ""
+        display_ppm = item.price_per_meter if item.price_per_meter else ""
+
         row_data = [
             item.city,
             display_name,
@@ -504,8 +514,8 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             storehouse_count,
             number_val,
             item.area,
-            item.price,
-            item.price_per_meter,
+            display_price,
+            display_ppm,
             "Открыть",
             i + 1,
         ]
@@ -521,7 +531,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
 
         # Форматы
-        ws.cell(row=row, column=7).number_format = '0.0'
+        ws.cell(row=row, column=7).number_format = '0.00' if item.site == 'domrf' else '0.0'
         ws.cell(row=row, column=8).number_format = '#,##0'
         ws.cell(row=row, column=9).number_format = '#,##0'
         if isinstance(number_val, int):

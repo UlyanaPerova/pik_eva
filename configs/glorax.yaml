@@ -17,3 +17,9 @@ links:
   - project: "glorax-urickogo"
     complex_name: "Московский"
     city: "Казань"
+
+# ─── Квартиры ───────────────────────────────────────────
+apartment_links:
+  - url: "https://glorax.com/flats?type=flat&withReserved=false&city=kazan"
+    city: "Казань"
+    notes: "Все квартиры в Казани"
