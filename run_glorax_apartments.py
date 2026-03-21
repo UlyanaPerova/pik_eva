@@ -16,6 +16,8 @@ from parsers.apartments_base import (
 )
 from parsers.glorax_apartments import GloraxApartmentParser
 from exporter_apartments import export_apartments_xlsx
+from kvartirografia import add_kvartirografia_sheets
+from openpyxl import load_workbook
 
 
 async def main() -> int:
@@ -44,6 +46,11 @@ async def main() -> int:
         logger.info("Обновлено записей в БД: %d", updated)
 
         output_path = export_apartments_xlsx(items, conn, previously_known=previously_known)
+
+        wb = load_workbook(str(output_path))
+        add_kvartirografia_sheets(wb, items)
+        wb.save(str(output_path))
+
         logger.info("Файл готов: %s", output_path)
 
         stats = calc_avg_prices(items)

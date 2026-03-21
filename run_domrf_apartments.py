@@ -21,6 +21,8 @@ from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from collections import defaultdict, Counter as _Counter
+from kvartirografia import add_kvartirografia_sheets
 from pathlib import Path
 import re
 
@@ -48,6 +50,8 @@ def _quarter_comment(text: str) -> str | None:
     if not end_date:
         return None
     return f"{end_date} {year} года"
+
+
 
 
 def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
@@ -153,8 +157,9 @@ async def main() -> int:
             previously_known=previously_known,
         )
 
-        # Добавляем лист с информацией о домах
+        # Добавляем листы
         wb = load_workbook(str(output_path))
+        add_kvartirografia_sheets(wb, items)
         _add_object_info_sheet(wb, object_infos)
         wb.save(str(output_path))
 
