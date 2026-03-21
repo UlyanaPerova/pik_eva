@@ -3,12 +3,15 @@
 Запуск парсера Ак Бар Дом + экспорт в xlsx.
 
 Использование:
-    python run_akbarsdom.py
+    python runners/storehouses/run_akbarsdom.py
 """
 from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from parsers.base import (
     init_db, save_items, backup_db, validate_items,

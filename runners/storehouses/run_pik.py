@@ -3,12 +3,15 @@
 Запуск парсера ПИК + экспорт в xlsx.
 
 Использование:
-    python run_pik.py
+    python runners/storehouses/run_pik.py
 """
 from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from parsers.base import (
     init_db, save_items, backup_db, validate_items,
