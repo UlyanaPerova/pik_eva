@@ -40,4 +40,6 @@ logs/
 
 # Рабочие заметки со ссылками
 links_storehouses.txt
+
+# Тесты
 test_kvartirografia.py
