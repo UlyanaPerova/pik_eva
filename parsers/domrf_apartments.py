@@ -123,6 +123,10 @@ class DomRfApartmentParser(BaseApartmentParser):
             text = await page.evaluate("() => document.body.innerText.substring(0, 10000)")
             lines = [l.strip() for l in text.split("\n") if l.strip()]
 
+            def _clean_val(val: str) -> str:
+                """Очистка дефисов — на дом.рф '-' означает 'нет данных'."""
+                return "" if val.strip() in ("-", "–", "—") else val
+
             # Берём только первое вхождение каждого поля (шапка страницы)
             found = set()
             for i, line in enumerate(lines):
@@ -130,19 +134,19 @@ class DomRfApartmentParser(BaseApartmentParser):
                 if "ввод в эксплуатацию" == ll and "commissioning" not in found:
                     found.add("commissioning")
                     if i + 1 < len(lines):
-                        info.commissioning = lines[i + 1]
+                        info.commissioning = _clean_val(lines[i + 1])
                 elif "выдача ключей" == ll and "keys" not in found:
                     found.add("keys")
                     if i + 1 < len(lines):
-                        info.keys_date = lines[i + 1]
+                        info.keys_date = _clean_val(lines[i + 1])
                 elif ll == "средняя цена за 1 м²" and "avg_price" not in found:
                     found.add("avg_price")
                     if i + 1 < len(lines):
-                        info.avg_price_per_meter = lines[i + 1]
+                        info.avg_price_per_meter = _clean_val(lines[i + 1])
                 elif "распроданность квартир" == ll and "sold" not in found:
                     found.add("sold")
                     if i + 1 < len(lines):
-                        info.sold_percent = lines[i + 1]
+                        info.sold_percent = _clean_val(lines[i + 1])
 
             # sales_agg API
             agg_url = f"{base_url}/сервисы/api/object/{object_id}/sales_agg"
@@ -160,6 +164,25 @@ class DomRfApartmentParser(BaseApartmentParser):
                 info.sold_apartments = apt_data.get("realised", 0)
                 if not info.sold_percent and apt_data.get("perc"):
                     info.sold_percent = f"{apt_data['perc']}%"
+
+            # object API — fallback для сданных домов (нет данных на странице)
+            obj_url = f"{base_url}/сервисы/api/object/{object_id}"
+            obj_data = await page.evaluate(
+                """async (url) => {
+                    const resp = await fetch(url);
+                    if (!resp.ok) return null;
+                    return await resp.json();
+                }""",
+                obj_url,
+            )
+            if obj_data and isinstance(obj_data, dict) and "data" in obj_data:
+                od = obj_data["data"]
+                if not info.avg_price_per_meter and od.get("objPriceAvg"):
+                    info.avg_price_per_meter = f"{int(od['objPriceAvg']):,} ₽".replace(",", " ")
+                if not info.sold_percent and od.get("soldOutPerc"):
+                    info.sold_percent = f"{int(od['soldOutPerc'] * 100)}%"
+                if not info.total_apartments and od.get("objElemLivingCnt"):
+                    info.total_apartments = od["objElemLivingCnt"]
 
         except Exception as e:
             self.log.warning("Ошибка парсинга header для %d: %s", object_id, e)

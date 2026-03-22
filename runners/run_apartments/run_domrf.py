@@ -61,11 +61,12 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
     ws = wb.create_sheet("Информация о домах")
 
     headers = [
-        "Объект (ID)", "ЖК", "Застройщик",
+        "Объект", "ЖК", "Застройщик",
         "Ввод в эксплуатацию", "Выдача ключей",
         "Средняя цена за 1 м²", "Распроданность",
         "Всего квартир", "Продано квартир",
     ]
+    base_url = "https://xn--80az8a.xn--d1aqf.xn--p1ai"
 
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
@@ -90,16 +91,25 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
         o.developer.lower(), o.complex_name.lower(), o.object_id,
     ))
 
+    link_font = Font(name="Calibri", size=11, color="0563C1", underline="single")
+
     for i, info in enumerate(sorted_infos):
         row = i + 2
+
+        # Очистка значений-дефисов (на сайте "-" означает "нет данных")
+        def clean(val):
+            if isinstance(val, str) and val.strip() in ("-", "–", "—"):
+                return ""
+            return val
+
         row_data = [
             info.object_id,
             info.complex_name,
             info.developer,
-            info.commissioning,
-            info.keys_date,
-            info.avg_price_per_meter,
-            info.sold_percent,
+            clean(info.commissioning),
+            clean(info.keys_date),
+            clean(info.avg_price_per_meter),
+            clean(info.sold_percent),
             info.total_apartments or "",
             info.sold_apartments or "",
         ]
@@ -108,6 +118,12 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
             cell.font = data_font
             cell.alignment = data_align
             cell.border = thin_border
+
+        # Первый столбец — ссылка на объект
+        obj_cell = ws.cell(row=row, column=1)
+        obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{info.object_id}"
+        obj_cell.hyperlink = obj_url
+        obj_cell.font = link_font
 
         # Примечание с расшифровкой квартала (только для ввода в эксплуатацию)
         hint = _quarter_comment(info.commissioning)
