@@ -45,3 +45,5 @@ links_storehouses.txt
 test_kvartirografia.py
 domclick_matiushino.py 
 домрф.docx
+test_domrf_mapping.py
+test_domrf_small.py

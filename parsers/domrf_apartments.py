@@ -83,6 +83,7 @@ class DomRfApartmentParser(BaseApartmentParser):
                 complex_name = link_info["complex_name"]
                 developer = link_info.get("developer", "")
                 city = link_info.get("city", "Казань")
+                building_override = link_info.get("building", "")
 
                 obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
                 self.log.info("Загрузка страницы %s ...", obj_url)
@@ -99,6 +100,7 @@ class DomRfApartmentParser(BaseApartmentParser):
                 object_items = await self._parse_object_apartments(
                     page, base_url, api_cfg, object_id,
                     complex_name, developer, city, target_types,
+                    building_override=building_override,
                 )
                 items.extend(object_items)
                 await asyncio.sleep(1)
@@ -204,6 +206,7 @@ class DomRfApartmentParser(BaseApartmentParser):
         developer: str,
         city: str,
         target_types: set[str],
+        building_override: str = "",
     ) -> list[ApartmentItem]:
         """Загрузить все квартиры одного объекта через table API."""
         table_ep = api_cfg.get(
@@ -251,6 +254,7 @@ class DomRfApartmentParser(BaseApartmentParser):
                     item = self._parse_flat(
                         flat, object_id, complex_name, developer, city,
                         base_url, entrance_num, floor_num,
+                        building_override=building_override,
                     )
                     if item:
                         items.append(item)
@@ -334,6 +338,7 @@ class DomRfApartmentParser(BaseApartmentParser):
         base_url: str,
         entrance_num: int,
         floor_num: int,
+        building_override: str = "",
     ) -> ApartmentItem | None:
         """Преобразовать одну квартиру из API в ApartmentItem."""
         try:
@@ -352,15 +357,17 @@ class DomRfApartmentParser(BaseApartmentParser):
             price = 0
             price_per_meter = 0
 
-            # Корпус из odsId: "52403/1/1" → building из первой части после objectId
-            building = ""
+            # Корпус: приоритет — из конфига (docx маппинг), fallback — из odsId
             apartment_number = ""
             if ods_id:
                 parts = ods_id.split("/")
                 if len(parts) >= 3:
-                    building = parts[1]
                     apartment_number = parts[2]
-                elif len(parts) == 2:
+
+            building = building_override if building_override else ""
+            if not building and ods_id:
+                parts = ods_id.split("/")
+                if len(parts) >= 2:
                     building = parts[1]
 
             # Подъезд → в примечание к корпусу через ||
