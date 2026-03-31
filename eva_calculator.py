@@ -25,6 +25,8 @@ from typing import Optional
 
 import yaml
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -927,6 +929,128 @@ def _apply_vertical_dividers(ws, start_row: int, end_row: int,
             )
 
 
+# ─── Цвета условного форматирования ──────────────────────
+
+# 6 уровней: синий → зелёный → светло-зелёный → жёлтый → оранжевый → коричневый
+CF_BLUE = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+CF_GREEN = PatternFill(start_color="6B9F3B", end_color="6B9F3B", fill_type="solid")
+CF_LTGREEN = PatternFill(start_color="C6DFAB", end_color="C6DFAB", fill_type="solid")
+CF_YELLOW = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
+CF_ORANGE = PatternFill(start_color="F4B183", end_color="F4B183", fill_type="solid")
+CF_BROWN = PatternFill(start_color="8B6914", end_color="8B6914", fill_type="solid")
+
+CF_BLUE_FONT = Font(color="FFFFFF", bold=True)
+CF_GREEN_FONT = Font(color="FFFFFF", bold=True)
+CF_BROWN_FONT = Font(color="FFFFFF", bold=True)
+CF_DEFAULT_FONT = Font(color="000000")
+
+
+def _add_conditional_formatting(ws, col_letter: str, last_row: int, rules: list):
+    """
+    Добавить условное форматирование к столбцу.
+    rules: [(operator, formula_or_values, fill, font), ...]
+    Порядок: от САМОГО СПЕЦИФИЧНОГО к общему (Excel применяет первое совпадение).
+    """
+    cell_range = f"{col_letter}3:{col_letter}{last_row}"
+    for rule_def in rules:
+        op, vals, fill, font = rule_def
+        if op == "formula":
+            ws.conditional_formatting.add(
+                cell_range,
+                FormulaRule(formula=vals, fill=fill, font=font)
+            )
+        else:
+            ws.conditional_formatting.add(
+                cell_range,
+                CellIsRule(operator=op, formula=vals, fill=fill, font=font)
+            )
+
+
+def _apply_color_rules(ws, last_row: int, col_map: dict):
+    """
+    Применить цветовые правила ко всем столбцам.
+    col_map: {"E": "days", "M": "ratio_apt_store", ...}
+    """
+    for col_letter, rule_type in col_map.items():
+        rules = _get_color_rules(rule_type, col_letter)
+        _add_conditional_formatting(ws, col_letter, last_row, rules)
+
+
+def _get_color_rules(rule_type: str, col: str) -> list:
+    """Вернуть правила условного форматирования для типа столбца."""
+
+    if rule_type == "days":
+        # Дней до сдачи: <183 синий, 183-365 зелёный, 365-547 свет-зел, 547-730 жёлтый, >730 коричневый
+        return [
+            ("lessThan", ["183"], CF_BLUE, CF_BLUE_FONT),
+            ("lessThan", ["365"], CF_GREEN, CF_GREEN_FONT),
+            ("lessThan", ["547"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("lessThan", ["730"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("greaterThanOrEqual", ["730"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "ratio_apt_store":
+        # Соотнош. квартир/кладовых: >13 синий, 10-13 зелёный, 7-10 свет-зел, 5-7 жёлтый, <5 коричневый
+        return [
+            ("greaterThan", ["13"], CF_BLUE, CF_BLUE_FONT),
+            ("greaterThanOrEqual", ["10"], CF_GREEN, CF_GREEN_FONT),
+            ("greaterThanOrEqual", ["7"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("greaterThanOrEqual", ["5"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("lessThan", ["5"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "ratio_price":
+        # Соотнош. цены м²: >5 синий, 4-5 зелёный, 3-4 свет-зел, <3 коричневый
+        return [
+            ("greaterThan", ["5"], CF_BLUE, CF_BLUE_FONT),
+            ("greaterThanOrEqual", ["4"], CF_GREEN, CF_GREEN_FONT),
+            ("greaterThanOrEqual", ["3"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("lessThan", ["3"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "ratio_balcony":
+        # Соотнош. квартир к балконам: >2 синий, 1.5-2 зелёный, 1-1.5 жёлтый, <1 коричневый
+        return [
+            ("greaterThan", ["2"], CF_BLUE, CF_BLUE_FONT),
+            ("greaterThanOrEqual", ["1.5"], CF_GREEN, CF_GREEN_FONT),
+            ("greaterThanOrEqual", ["1"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("lessThan", ["1"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "store_area":
+        # Площадь кладовки: >6 синий, 5-6 зелёный, 4-5 свет-зел, 3-4 жёлтый, <2.5 коричневый
+        return [
+            ("greaterThanOrEqual", ["6"], CF_BLUE, CF_BLUE_FONT),
+            ("greaterThanOrEqual", ["5"], CF_GREEN, CF_GREEN_FONT),
+            ("greaterThanOrEqual", ["4"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("greaterThanOrEqual", ["3"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("lessThan", ["2.5"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "store_price":
+        # Стоимость: <300к синий, 300-350 зелёный, 350-400 свет-зел, 400-500 жёлтый, 500-650 оранж, >650 коричневый
+        return [
+            ("lessThan", ["300000"], CF_BLUE, CF_BLUE_FONT),
+            ("lessThan", ["350000"], CF_GREEN, CF_GREEN_FONT),
+            ("lessThan", ["400000"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("lessThan", ["500000"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("lessThan", ["650000"], CF_ORANGE, CF_DEFAULT_FONT),
+            ("greaterThanOrEqual", ["650000"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    elif rule_type == "store_ppm":
+        # Цена/м²: <65к синий, 65-70 зелёный, 70-85 свет-зел, 85-100 жёлтый, >100 коричневый
+        return [
+            ("lessThan", ["65000"], CF_BLUE, CF_BLUE_FONT),
+            ("lessThan", ["70000"], CF_GREEN, CF_GREEN_FONT),
+            ("lessThan", ["85000"], CF_LTGREEN, CF_DEFAULT_FONT),
+            ("lessThan", ["100000"], CF_YELLOW, CF_DEFAULT_FONT),
+            ("greaterThanOrEqual", ["100000"], CF_BROWN, CF_BROWN_FONT),
+        ]
+
+    return []
+
+
 def _write_cell(ws, row, col, value, is_manual=False, is_score=False, is_link=False, is_gray=False):
     cell = ws.cell(row=row, column=col, value=value)
     cell.font = DATA_FONT
@@ -962,13 +1086,19 @@ def _read_manual_jk(old_path: Path) -> dict[tuple, dict]:
             continue
         key = _match_key(str(city or ""), str(cn or ""), str(bld or ""))
         data = {}
-        # 9=балконы, 10=размер, 11=локация, 12=доступ, 14=балконы/квартиры
+        # 9=балконы, 10=размер, 11=локация, 12=доступ
+        # Если ячейка имеет примечание "автоматически" — это автозаполнение, не ручное
         for col_idx, name in [(9, "balcony_count"), (10, "balcony_size"),
-                               (11, "location"), (12, "access"),
-                               (14, "balcony_ratio")]:
-            val = ws.cell(r, col_idx).value
-            if val is not None:
-                data[name] = val
+                               (11, "location"), (12, "access")]:
+            cell = ws.cell(r, col_idx)
+            val = cell.value
+            if val is None:
+                continue
+            # Пропускаем автозаполненные значения (с примечанием)
+            comment = cell.comment
+            if comment and "автоматически" in str(comment.text or ""):
+                continue
+            data[name] = val
         if data:
             manual[key] = data
     wb.close()
@@ -1063,10 +1193,26 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
             else:
                 _write_cell(ws, row, 8, None)
 
-            # 9-11: этапы баллов (пока пустые)
-            _write_cell(ws, row, 9, None)
-            _write_cell(ws, row, 10, None)
-            _write_cell(ws, row, 11, None)
+            # 9: Первый этап — ссылка на формулу с листа жк
+            if jk_row:
+                _write_cell(ws, row, 9, f'=жк!H{jk_row}')
+            else:
+                _write_cell(ws, row, 9, 0)
+
+            # 10: Второй этап — формула на данных кладовки (cols: G=7, L=12, M=13, N=14)
+            r = row
+            second_stage = (
+                f'=ROUND(IF(OR(G{r}=0,G{r}=""),0,IFERROR('
+                f'(IF(L{r}<2.5,-20,IF(L{r}<=4.5,5,5-(L{r}-4.5)*3)))'
+                f'+(IF(M{r}>1000000,-5,(650000-M{r})*(10/650000)))'
+                f'+(IF(N{r}>110000,0,(110000-N{r})*(20/60000)))'
+                f'+(IF(G{r}<3,(G{r}-3)*30,(G{r}-3)*5))'
+                f',0)),2)'
+            )
+            _write_cell(ws, row, 10, second_stage)
+
+            # 11: Общие баллы = первый + второй
+            _write_cell(ws, row, 11, f'=ROUND(I{r}+J{r},2)')
 
             _write_cell(ws, row, 12, store.get("area"))
             _write_cell(ws, row, 13, store.get("price") if has_price else "–")
@@ -1100,6 +1246,18 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
     store_right = {4, 8, 11, 16, 17}
     store_left = {5, 9, 12, 17}
     _apply_vertical_dividers(ws, 2, row - 1, store_right, store_left)
+
+    # Условное форматирование (цвета по значениям)
+    # Лист 1: E=5(дни), F=6(кв/клад), G=7(цена м²), H=8(кв/балк), L=12(площадь), M=13(стоимость), N=14(цена/м²)
+    _apply_color_rules(ws, row - 1, {
+        "E": "days",
+        "F": "ratio_apt_store",
+        "G": "ratio_price",
+        "H": "ratio_balcony",
+        "L": "store_area",
+        "M": "store_price",
+        "N": "store_ppm",
+    })
 
     ws.freeze_panes = "E3"
     if row > 3:
@@ -1136,7 +1294,7 @@ JK_HEADERS = [
 ]
 
 MANUAL_JK_COLS = {9, 10, 11, 12}  # жёлтые (14 теперь формула)
-EMPTY_JK_COLS = {8}                   # «первый этап» — не заполнять
+EMPTY_JK_COLS = set()                  # нет пустых столбцов
 
 JK_WIDTHS = (
     [12, 16, 22, 14, 12, 22, 22, 12]       # 1-8
@@ -1213,6 +1371,49 @@ def _fill_jk_sheet(
         # Формула: кол-во квартир (O) / кол-во балконов (I), с защитой от ошибки
         balcony_ratio_formula = f'=IFERROR(O{row}/I{row},"")'
 
+        # Формула первого этапа (col H=8)
+        r = row
+        first_stage_formula = (
+            f'=ROUND(IF(OR(C{r}="",D{r}="",COUNTA(M{r}:AG{r})<15),0,IFERROR('
+            # 1. Срок ввода (E=5, дни) — если E пусто, компонент = 0
+            f'(IF(OR(E{r}="",E{r}=0),0,IF(E{r}<365,20-E{r}*(10/365),IF(E{r}<730,10-(E{r}-365)*(5/365),0))))'
+            # 2. Соотнош. квартир/кладовых (M=13)
+            f'+(IF(M{r}<5,-10-(5-M{r})*2,IF(M{r}<=10,15+(M{r}-5)*5,IF(M{r}<=15,40+(M{r}-10)*10,90+(M{r}-15)*15))))'
+            # 3. Квартирография студии+1к (S+T = 19+20)
+            f'+(IF((S{r}+T{r})<40,0,IF((S{r}+T{r})<=50,2,5)))'
+            # 4. Квартирография 2к (U=21), зависит от балконов (N=14) и размера (J=10)
+            f'+(IF(AND(N{r}>=1.5,N{r}<=2,J{r}="М"),IF(U{r}<40,1,IF(U{r}<=50,3,5)),'
+            f'IF(AND(N{r}>2,OR(J{r}="М",J{r}="С")),IF(U{r}<40,2,IF(U{r}<=50,5,7)),'
+            f'IF(U{r}<40,0,IF(U{r}<=50,1,2)))))'
+            # 5. Квартирография 3к+4к (V+W = 22+23), зависит от балконов
+            f'+(IF(AND(N{r}>=1.5,N{r}<=2,J{r}="М"),IF((V{r}+W{r})<10,2,IF((V{r}+W{r})<=15,5,10)),'
+            f'IF(AND(N{r}>2,OR(J{r}="М",J{r}="С")),IF((V{r}+W{r})<10,5,IF((V{r}+W{r})<=15,10,15)),'
+            f'IF((V{r}+W{r})<10,2,IF((V{r}+W{r})<=15,0,-5)))))'
+            # 6. Средняя площадь (X-AB = 24-28)
+            f'+(IF(N(X{r})>0,IF(X{r}<=25,2,IF(X{r}<=30,1,0)),0)'
+            f'+IF(N(Y{r})>0,IF(Y{r}<=35,2,IF(Y{r}<=43,1,0)),0)'
+            f'+IF(N(Z{r})>0,IF(Z{r}<=55,2,IF(Z{r}<=63,1,0)),0)'
+            f'+IF(N(AA{r})>0,IF(AA{r}<=78,2,IF(AA{r}<=88,1,0)),0)'
+            f'+IF(N(AB{r})>0,IF(AB{r}<=100,2,IF(AB{r}<=120,1,0)),0))'
+            # 7. Нежилая площадь (AC-AG = 29-33)
+            f'+(IF(AC{r}>0,IF(AC{r}<=13,2,IF(AC{r}<=17,1,0)),0)'
+            f'+IF(AD{r}>0,IF(AD{r}<=23,2,IF(AD{r}<=26,1,0)),0)'
+            f'+IF(AE{r}>0,IF(AE{r}<=28,2,IF(AE{r}<=35,1,0)),0)'
+            f'+IF(AF{r}>0,IF(AF{r}<=35,2,IF(AF{r}<=45,1,0)),0)'
+            f'+IF(AG{r}>0,IF(AG{r}<=40,2,IF(AG{r}<=60,1,0)),0))'
+            # 8. Балконы ratio (N=14) — нелинейная шкала
+            f'+(IF(N{r}<=1,-10,IF(N{r}<=1.5,5,IF(N{r}<=2,10+(N{r}-1.5)*10,'
+            f'IF(N{r}<=2.5,15+(N{r}-2)*15,IF(N{r}<=3,22.5+(N{r}-2.5)*25,'
+            f'IF(N{r}<=3.5,35+(N{r}-3)*30,IF(N{r}<=4,50+(N{r}-3.5)*35,67.5+(N{r}-4)*40))))))))'
+            # 9. Размер балконов (J=10)
+            f'+(IF(J{r}="С",0,IF(J{r}="Б",-15,IF(J{r}="М",5,0))))'
+            # 10. Локация (K=11)
+            f'+(IF(K{r}="Центр",5,IF(K{r}="Норм",3,IF(K{r}="Окраина",0,IF(K{r}="Фу",-5,0)))))'
+            # 11. Доступ (L=12)
+            f'+(IF(L{r}="Лифт+Улица",10,IF(L{r}="Лифт",5,IF(L{r}="Улица",-10,IF(L{r}="Лестница",0,0)))))'
+            f',0)),2)'
+        )
+
         values = {
             1: bd.city,
             2: bd.developer,
@@ -1221,9 +1422,9 @@ def _fill_jk_sheet(
             5: bd.days_until,
             6: bd.domrf_link or None,
             7: dev_url or None,
-            8: None,  # первый этап — не заполнять
-            9: m.get("balcony_count"),
-            10: m.get("balcony_size"),
+            8: first_stage_formula,
+            9: m.get("balcony_count") or bd.domrf_apt_count or 0,
+            10: m.get("balcony_size") or "С",
             11: m.get("location"),
             12: m.get("access"),
             13: apt_store_ratio,
@@ -1278,6 +1479,18 @@ def _fill_jk_sheet(
             cell.font = LINK_FONT
             cell.value = "Застройщик"
 
+        # Примечания для автозаполненных ячеек
+        if not m.get("balcony_count"):
+            c = ws.cell(row, 9)
+            c.comment = Comment("Значение было добавлено автоматически", "EVA")
+            c.comment.width = 250
+            c.comment.height = 30
+        if not m.get("balcony_size"):
+            c = ws.cell(row, 10)
+            c.comment = Comment("Значение было добавлено автоматически", "EVA")
+            c.comment.width = 250
+            c.comment.height = 30
+
         # Dropdown валидация
         dv_size.add(ws.cell(row, 10))
         dv_loc.add(ws.cell(row, 11))
@@ -1294,6 +1507,14 @@ def _fill_jk_sheet(
 
     # Сплошные вертикальные разделители по ВСЕМ строкам
     _apply_vertical_dividers(ws, 2, last_data_row, JK_BLOCK_DIVIDERS, JK_BLOCK_LEFT_DIVIDERS)
+
+    # Условное форматирование (цвета по значениям)
+    # Лист 2: E=5(дни), M=13(кв/клад), N=14(кв/балк)
+    _apply_color_rules(ws, last_data_row, {
+        "E": "days",
+        "M": "ratio_apt_store",
+        "N": "ratio_balcony",
+    })
 
     ws.freeze_panes = "E3"
     if last_data_row > 2:
