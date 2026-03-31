@@ -633,11 +633,8 @@ def _aggregate(
                                developer=st.get("site", ""))
             b.dev_storehouses.append(st)
 
-    # "Остаток кладовок" — на уровне комплекса для всех корпусов
-    for ck, stores in complex_dev_stores.items():
-        for b in buildings.values():
-            if _complex_key(b.city, b.complex_name) == ck:
-                b.dev_store_count = len(stores)
+    # "Остаток кладовок" — считаем из ВСЕХ dev-кладовок по комплексу (включая пустой building)
+    # Это присвоение будет перезаписано ниже — финальное присвоение в конце
 
     dev_apt_groups: dict[tuple, list[dict]] = defaultdict(list)
     for apt in dev_apts:
@@ -689,7 +686,6 @@ def _aggregate(
             b.rooms_count = dict(ca.rooms_count)
             b.avg_area = dict(ca.avg_area)
             b.avg_non_living = dict(ca.avg_non_living)
-        b.dev_store_count = len(b.dev_storehouses)
 
     # ─── Шаг 3.5: Для ЖК БЕЗ DomRF — агрегировать из данных застройщика ───
     # Квартирография, средняя площадь, кол-во квартир из dev apartments
@@ -796,6 +792,20 @@ def _aggregate(
 
     # П.3: для корпусов с ppm=0 — взять от соседнего корпуса
     _apply_neighbor_ppm(list(buildings.values()))
+
+    # Остаток кладовок — финальное присвоение из dev-данных на уровне комплекса
+    # Считаем ВСЕ кладовки застройщика для комплекса (включая пустой building)
+    for ck, stores in complex_dev_stores.items():
+        count = len(stores)
+        for b in buildings.values():
+            if _complex_key(b.city, b.complex_name) == ck:
+                b.dev_store_count = count
+
+    # Для ЖК без DomRF — остаток = количество dev_storehouses у корпуса
+    for b in buildings.values():
+        ck = _complex_key(b.city, b.complex_name)
+        if ck not in complex_dev_stores and b.dev_storehouses:
+            b.dev_store_count = len(b.dev_storehouses)
 
     # Нормализация имён застройщиков
     for b in buildings.values():
