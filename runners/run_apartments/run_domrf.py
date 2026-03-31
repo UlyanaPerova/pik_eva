@@ -26,6 +26,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from collections import defaultdict, Counter as _Counter
 from kvartirografia import add_kvartirografia_sheets
+from smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
+from parsers.apartments_base import OUTPUT_DIR
 import re
 
 
@@ -169,17 +171,33 @@ async def main() -> int:
         updated = save_items(conn, items)
         logger.info("Обновлено записей в БД: %d", updated)
 
+        # Smart merge — определяем правки пользователя, новые/проданные
+        xlsx_filename = "apartments_DomRF.xlsx"
+        xlsx_path = OUTPUT_DIR / xlsx_filename
+        merge_result = smart_merge(items, xlsx_path, conn, "domrf")
+
         output_path = export_apartments_xlsx(
             items, conn,
-            filename="apartments_DomRF.xlsx",
+            filename=xlsx_filename,
             previously_known=previously_known,
+            merge_result=merge_result,
         )
 
         # Добавляем листы
         wb = load_workbook(str(output_path))
         add_kvartirografia_sheets(wb, items)
         _add_object_info_sheet(wb, object_infos)
+
+        # Копируем пользовательские листы из старого файла
+        if merge_result.old_workbook and merge_result.user_sheets_data:
+            user_sheet_names = [s["name"] for s in merge_result.user_sheets_data]
+            copy_user_sheets(wb, merge_result.old_workbook, user_sheet_names)
+
         wb.save(str(output_path))
+
+        # Сохраняем записанные значения и статусы для будущих сравнений
+        save_written_values(conn, "domrf", items)
+        save_merge_statuses(conn, "domrf", merge_result.new_ids, merge_result.sold_ids)
 
         logger.info("Файл готов: %s", output_path)
 

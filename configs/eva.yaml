@@ -1,0 +1,170 @@
+# Правила разбалловки ЕВА
+# Каждый критерий — список порогов: значение < max → points баллов
+
+output_filename: "расчет_ева.xlsx"
+
+# Алиасы названий ЖК: застройщик → ДОМ.РФ (каноническое)
+# Если у ЖК есть строки в конфиге DomRF, данные застройщика
+# привязываются к каноническому имени, а не создают дубли
+complex_aliases:
+  "Сибирово": "Сиберово"
+
+# Маппинг корпусов застройщика → корпус DomRF (по ЖК)
+# Формат: "ЖК": {"паттерн_застройщика": "корпус_ДомРФ"}
+# Паттерн может начинаться с ^ для prefix-match
+building_aliases:
+  "Адали":
+    "Дом 1": "1"
+    "Дом 2": "2"
+    "Дом 3": "3"
+  "Вознесенский Квартал":
+    "^Дом I очередь": "1"
+    "^Дом II очередь": "2"
+    "^Дом III очередь": "3"
+  "Крыловка парк":
+    "^Дом 3": "3"
+    "^Дом 4": "4"
+  "Минтимер":
+    "^Дом I очередь": "1"
+    "^Дом II очередь": "2"
+  "Яналиф":
+    "^Дом I очередь": "1 очередь"
+    "^Дом II очередь": "2 очередь"
+    "^Дом III очередь": "3 очередь"
+    "^Дом IV очередь": "4 очередь"
+
+scoring:
+  # 1. Срок ввода (месяцы до сдачи)
+  deadline_months:
+    - {max: 6,   points: 20}
+    - {max: 12,  points: 15}
+    - {max: 24,  points: 5}
+    - {max: 9999, points: 0}
+
+  # 2. Соотношение кол-ва квартир к кладовым
+  apartment_storehouse_ratio:
+    - {max: 5,   points: 0}
+    - {max: 7,   points: 10}
+    - {max: 10,  points: 15}
+    - {max: 13,  points: 20, bonus_per_unit: 1}
+    - {max: 9999, points: 25, bonus_per_unit: 2}
+
+  # 3. Соотношение цены м² квартир к кладовым
+  price_ratio:
+    - {max: 3,   points: 0}
+    - {max: 4,   points: 5}
+    - {max: 5,   points: 10}
+    - {max: 9999, points: 15}
+
+  # 4. Квартирография (% от общего кол-ва)
+  kvartirografia:
+    studio_1k:   # студии + 1к
+      - {max: 40,  points: 0}
+      - {max: 50,  points: 2}
+      - {max: 100, points: 5}
+    two_k:       # 2к
+      - {max: 40,  points: 0}
+      - {max: 50,  points: 1}
+      - {max: 100, points: 2}
+    three_4k:    # 3к + 4к
+      - {max: 10,  points: 2}
+      - {max: 15,  points: 0}
+      - {max: 100, points: -5}
+
+  # 5. Средняя площадь (м²) — баллы за каждый тип квартиры
+  avg_area:
+    studio:
+      - {max: 25, points: 2}
+      - {max: 30, points: 1}
+      - {max: 9999, points: 0}
+    one_k:
+      - {max: 35, points: 2}
+      - {max: 43, points: 1}
+      - {max: 9999, points: 0}
+    two_k:
+      - {max: 55, points: 2}
+      - {max: 63, points: 1}
+      - {max: 9999, points: 0}
+    three_k:
+      - {max: 78, points: 2}
+      - {max: 88, points: 1}
+      - {max: 9999, points: 0}
+    four_k:
+      - {max: 100, points: 2}
+      - {max: 120, points: 1}
+      - {max: 9999, points: 0}
+
+  # 6. Средняя нежилая площадь (м²)
+  avg_non_living:
+    studio:
+      - {max: 13, points: 2}
+      - {max: 17, points: 1}
+      - {max: 9999, points: 0}
+    one_k:
+      - {max: 23, points: 2}
+      - {max: 26, points: 1}
+      - {max: 9999, points: 0}
+    two_k:
+      - {max: 28, points: 0}
+      - {max: 35, points: 2}
+      - {max: 45, points: 1}
+      - {max: 9999, points: 0}
+    three_k:
+      - {max: 35, points: 0}
+      - {max: 45, points: 2}
+      - {max: 9999, points: 1}
+    four_k:
+      - {max: 40, points: 0}
+      - {max: 60, points: 2}
+      - {max: 9999, points: 1}
+
+  # 7. Соотношение квартир к балконам (РУЧНОЙ ВВОД)
+  balcony_ratio:
+    - {max: 1,   points: -10}
+    - {max: 2,   points: 5}
+    - {max: 9999, points: 10}
+
+  # 8. Размер балконов (РУЧНОЙ ВВОД)
+  balcony_size:
+    С: 0
+    Б: -15
+    М: 5
+
+  # 9. Локация ЖК (РУЧНОЙ ВВОД)
+  location:
+    Центр: 5
+    Норм: 3
+    Окраина: 0
+    Фу: -5
+
+  # 10. Удобство доступа (РУЧНОЙ ВВОД)
+  access:
+    Лифт: 5
+    Улица: -10
+    Лестница: 0
+    "Лифт+Улица": 10
+
+  # 11. Площадь кладовки (м²)
+  storehouse_area:
+    - {max: 2.5, points: -15}
+    - {max: 4,   points: 10}
+    - {max: 5,   points: 7}
+    - {max: 6,   points: 5}
+    - {max: 9999, points: 2}
+
+  # 12. Стоимость кладовки (₽)
+  storehouse_price:
+    - {max: 300000,  points: 15}
+    - {max: 350000,  points: 12}
+    - {max: 400000,  points: 8}
+    - {max: 500000,  points: 5}
+    - {max: 650000,  points: 2}
+    - {max: 999999999, points: 0}
+
+  # 13. Цена кладовки за м² (₽/м²)
+  storehouse_ppm:
+    - {max: 65000,  points: 10}
+    - {max: 70000,  points: 7}
+    - {max: 85000,  points: 5}
+    - {max: 100000, points: 2}
+    - {max: 999999999, points: 0}

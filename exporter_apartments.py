@@ -120,8 +120,11 @@ FLAT_COLUMNS = [
     "Цена/м² (₽)",
     "Ссылка",
     "Исх. порядок",
+    "ID",
 ]
 FCOL = len(FLAT_COLUMNS)
+
+SOLD_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
 
 def _natural_sort_key(text: str):
@@ -158,6 +161,7 @@ def export_apartments_xlsx(
     conn: sqlite3.Connection,
     filename: str | None = None,
     previously_known: set[str] | None = None,
+    merge_result=None,
 ) -> Path:
     """Создать xlsx с тремя листами."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -186,7 +190,8 @@ def export_apartments_xlsx(
     _fill_pretty_sheet(ws_pretty, items, conn, previously_known, baseline_ids)
 
     ws_flat = wb.create_sheet("Все данные")
-    _fill_flat_sheet(ws_flat, items, conn, previously_known, baseline_ids)
+    _fill_flat_sheet(ws_flat, items, conn, previously_known, baseline_ids,
+                     merge_result=merge_result)
 
     # Лист «Средние цены» — только если есть квартиры с ценами (не для domrf)
     has_priced = any(it.price > 0 for it in items)
@@ -407,7 +412,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             group_start = jk_row + 1
             group_end = row - 1
             if group_end >= group_start:
-                ws.row_dimensions.group(group_start, group_end, outline_level=1)
+                ws.row_dimensions.group(group_start, group_end, outline_level=1, hidden=True)
 
     # Ширины столбцов
     col_widths = [16, 10, 10, 10, 8, 12, 12, 14, 14, 12, 8]
@@ -419,7 +424,8 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 #  ЛИСТ 2: «Все данные» — плоская таблица
 # ══════════════════════════════════════════════════════
 
-def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
+def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
+                     merge_result=None) -> None:
     sorted_items = sorted(items, key=_sort_key)
 
     count_key = lambda it: (it.site, it.complex_name, it.building.split("||")[0].strip(), it.rooms)
@@ -501,13 +507,59 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             display_ppm,
             "Открыть",
             i + 1,
+            item.item_id,
         ]
 
+        # Применяем пользовательские правки (если есть)
+        user_edits_for_item = {}
+        if merge_result and hasattr(merge_result, 'user_edits'):
+            user_edits_for_item = merge_result.user_edits.get(item.item_id, {})
+
         for col_idx, value in enumerate(row_data, start=1):
+            # Если пользователь правил эту ячейку — сохраняем его значение
+            if col_idx in user_edits_for_item:
+                edit = user_edits_for_item[col_idx]
+                value = edit.user_value
+
             cell = ws.cell(row=row, column=col_idx, value=value)
             cell.font = DATA_FONT
             cell.alignment = DATA_ALIGN
             cell.border = THIN_BORDER
+
+        # Примечания о пользовательских правках
+        for col_idx, edit in user_edits_for_item.items():
+            cell = ws.cell(row=row, column=col_idx)
+            from datetime import datetime as _dt
+            date_str = _dt.now().strftime("%d.%m.%Y")
+            comment_text = (
+                f"{date_str}. Сохранено пользовательское значение.\n"
+                f"Значение при парсинге: {edit.new_parser_value}"
+            )
+            cell.comment = Comment(comment_text, "Smart Merge")
+            cell.comment.width = 300
+            cell.comment.height = 50
+
+        # Подсветка новых квартир (зелёный) + комментарий
+        is_new = merge_result and item.item_id in getattr(merge_result, 'new_ids', set())
+        is_prev_new = merge_result and item.item_id in getattr(merge_result, 'prev_new_ids', set())
+        if is_new:
+            for c in range(1, FCOL + 1):
+                ws.cell(row=row, column=c).fill = NEW_ITEM_FILL
+            from datetime import datetime as _dt
+            _c = ws.cell(row=row, column=7)  # Номер
+            _c.comment = Comment(
+                f"Новая квартира от {_dt.now().strftime('%d.%m.%Y')}",
+                "Smart Merge",
+            )
+            _c.comment.width = 200
+            _c.comment.height = 30
+        elif is_prev_new:
+            # Был новым в прошлый раз — без цвета, но комментарий остаётся
+            _c = ws.cell(row=row, column=7)
+            if not _c.comment:
+                _c.comment = Comment("Новая квартира (предыдущий парсинг)", "Smart Merge")
+                _c.comment.width = 200
+                _c.comment.height = 30
 
         if building_note:
             ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
@@ -548,15 +600,69 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         _add_price_comment(ws, row, 11, conn, item)
         _add_ppm_comment(ws, row, 12, conn, item)
 
+    # Проданные/снятые квартиры — добавляем в конец
+    # sold_ids = впервые пропали → красный + комментарий
+    # prev_sold_ids = пропали в прошлый раз → без цвета + комментарий
+    all_sold = set()
+    if merge_result:
+        all_sold = getattr(merge_result, 'sold_ids', set()) | getattr(merge_result, 'prev_sold_ids', set())
+
+    if all_sold and merge_result and merge_result.old_workbook:
+        if "Все данные" in merge_result.old_workbook.sheetnames:
+            old_ws = merge_result.old_workbook["Все данные"]
+            id_col = None
+            for col in range(1, old_ws.max_column + 1):
+                if old_ws.cell(row=1, column=col).value == "ID":
+                    id_col = col
+                    break
+            if id_col:
+                sold_row = len(sorted_items) + 2
+                from datetime import datetime as _dt
+                date_str = _dt.now().strftime("%d.%m.%Y")
+
+                for old_row in range(2, old_ws.max_row + 1):
+                    old_id = old_ws.cell(row=old_row, column=id_col).value
+                    if not old_id or str(old_id) not in all_sold:
+                        continue
+
+                    is_first_sold = str(old_id) in getattr(merge_result, 'sold_ids', set())
+
+                    for col in range(1, FCOL + 1):
+                        old_val = old_ws.cell(row=old_row, column=col).value
+                        cell = ws.cell(row=sold_row, column=col, value=old_val)
+                        cell.font = DATA_FONT
+                        cell.alignment = DATA_ALIGN
+                        cell.border = THIN_BORDER
+                        if is_first_sold:
+                            cell.fill = SOLD_FILL
+
+                    # Комментарий
+                    comment_cell = ws.cell(row=sold_row, column=7)  # Номер
+                    if is_first_sold:
+                        comment_cell.comment = Comment(
+                            f"Снята с продажи от {date_str}", "Smart Merge"
+                        )
+                    else:
+                        comment_cell.comment = Comment(
+                            "Снята с продажи (предыдущий парсинг)", "Smart Merge"
+                        )
+                    comment_cell.comment.width = 250
+                    comment_cell.comment.height = 30
+
+                    sold_row += 1
+
     # Автофильтр
-    last_row = len(sorted_items) + 1
+    last_row = ws.max_row
     if last_row > 1:
         ws.auto_filter.ref = f"A1:{get_column_letter(FCOL)}{last_row}"
 
     # Ширина
-    flat_widths = [14, 16, 18, 16, 10, 10, 10, 8, 12, 12, 14, 14, 12, 8]
+    flat_widths = [14, 16, 18, 16, 10, 10, 10, 8, 12, 12, 14, 14, 12, 8, 0]
     for i, w in enumerate(flat_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
+
+    # Скрываем столбец ID
+    ws.column_dimensions[get_column_letter(FCOL)].hidden = True
 
 
 # ══════════════════════════════════════════════════════

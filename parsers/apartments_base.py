@@ -129,6 +129,11 @@ def init_db() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_apt_item
         ON apartment_prices (site, item_id, parsed_at)
     """)
+    # Миграция: добавить living_area, если столбца ещё нет
+    try:
+        conn.execute("ALTER TABLE apartment_prices ADD COLUMN living_area REAL")
+    except sqlite3.OperationalError:
+        pass  # столбец уже существует
     conn.commit()
     logger.debug("БД квартир инициализирована: %s", DB_PATH)
     return conn
@@ -156,14 +161,15 @@ def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
             """INSERT INTO apartment_prices
                (site, city, complex_name, building, item_id, rooms, floor,
                 apartment_number, area, price, price_per_meter,
-                original_price, discount_percent, url, parsed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                original_price, discount_percent, url, living_area,
+                parsed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (item.site, item.city, item.complex_name, item.building,
              item.item_id, item.rooms, item.floor,
              item.apartment_number,
              item.area, item.price, item.price_per_meter,
              item.original_price, item.discount_percent,
-             item.url, now),
+             item.url, item.living_area, now),
         )
         updated += 1
     conn.commit()
