@@ -1,0 +1,77 @@
+# Тестовый конфиг — только новые объекты из обновления от 01.04.2026
+name: "ДОМ.РФ (тест)"
+key: "domrf"
+base_url: "https://xn--80az8a.xn--d1aqf.xn--p1ai"
+strategy: "api"
+
+api:
+  table_endpoint: "/portal-kn/api/sales/portal/table?externalId={object_id}"
+  sales_agg_endpoint: "/сервисы/api/object/{object_id}/sales_agg"
+  sale_graph_endpoint: "/сервисы/api/object/{object_id}/sale_graph?type=apartments"
+
+target_types:
+  - "Квартира"
+  - "Квартира-студия"
+
+links:
+  # ── Ак Барс Дом (новые) ────────────────────────────────
+  - object_id: 51607
+    building: ""
+    complex_name: "Дом на Исхаки"
+    developer: "Ак Барс Дом"
+    city: "Казань"
+
+  - object_id: 50971
+    building: ""
+    complex_name: "Мифы"
+    developer: "Ак Барс Дом"
+    city: "Казань"
+
+  # ── Унистрой / Атмосфера (новые) ───────────────────────
+  - object_id: 39470
+    building: "1.3"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 39471
+    building: "1.4"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 45951
+    building: "2.1"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 45984
+    building: "2.2"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 52132
+    building: "3.1"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 52133
+    building: "3.2"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 65186
+    building: "4.1"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 65158
+    building: "4.2"
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+
+  # ── Унистрой / YES Горки (новый) ───────────────────────
+  - object_id: 65412
+    building: ""
+    complex_name: "Сервисный апарт-отель YES Горки"
+    developer: "Унистрой"
+    city: "Казань"

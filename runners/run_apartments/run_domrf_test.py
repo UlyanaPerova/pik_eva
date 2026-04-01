@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Запуск парсера квартир ДОМ.РФ + экспорт в xlsx.
+Тестовый запуск парсера квартир ДОМ.РФ — только новые объекты.
+
+Использует configs/domrf_apartments_test.yaml (11 новых объектов).
+Результат: output/apartments_DomRF_test.xlsx
 
 Использование:
-    python runners/apartments/run_domrf.py
+    python runners/run_apartments/run_domrf_test.py
 """
 from __future__ import annotations
 
@@ -158,14 +161,16 @@ async def main() -> int:
     args = _parse_args()
 
     logger.info("=" * 50)
-    logger.info("Запуск парсера квартир ДОМ.РФ")
+    logger.info("ТЕСТ: парсер квартир ДОМ.РФ — только новые объекты")
     logger.info("=" * 50)
+
+    config_path = Path(__file__).resolve().parent.parent.parent / "configs" / "domrf_apartments_test.yaml"
 
     backup_db()
     conn = init_db()
 
     try:
-        parser = DomRfApartmentParser(cdp_port=args.cdp)
+        parser = DomRfApartmentParser(config_path=config_path, cdp_port=args.cdp)
         items, object_infos = await parser.parse_all()
 
         if not items:
@@ -182,7 +187,7 @@ async def main() -> int:
         logger.info("Обновлено записей в БД: %d", updated)
 
         # Smart merge — определяем правки пользователя, новые/проданные
-        xlsx_filename = "apartments_DomRF.xlsx"
+        xlsx_filename = "apartments_DomRF_test.xlsx"
         xlsx_path = OUTPUT_DIR / xlsx_filename
         merge_result = smart_merge(items, xlsx_path, conn, "domrf")
 

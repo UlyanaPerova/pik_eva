@@ -12,14 +12,24 @@ from parsers.base import init_db, save_items, backup_db, validate_items, logger
 from exporter import export_xlsx
 
 
+def _parse_args():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cdp", type=int, default=None, metavar="PORT",
+                    help="Подключиться к Chrome через CDP (порт remote-debugging)")
+    return ap.parse_args()
+
+
 async def main():
+    args = _parse_args()
+
     logger.info("=" * 50)
     logger.info("Запуск парсера ДОМ.РФ")
     logger.info("=" * 50)
 
     backup_db()
 
-    parser = DomRfParser()
+    parser = DomRfParser(cdp_port=args.cdp)
     items = await parser.parse_all()
 
     warnings = validate_items(items)

@@ -29,12 +29,79 @@ CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 
 class DomRfParser(BaseParser):
-    def __init__(self, config_path: str | Path | None = None):
+    def __init__(self, config_path: str | Path | None = None, cdp_port: int | None = None):
         if config_path is None:
             config_path = CONFIGS_DIR / "domrf.yaml"
         super().__init__(config_path)
+        self.cdp_port = cdp_port
 
     async def parse_all(self) -> list[StorehouseItem]:
+        if self.cdp_port:
+            return await self._parse_all_cdp()
+        return await self._parse_all_headless()
+
+    async def _parse_all_cdp(self) -> list[StorehouseItem]:
+        """Парсинг через CDP (настоящий Chrome) с обработкой капчи и resume."""
+        from parsers.cdp_browser import CdpBrowser
+
+        items: list[StorehouseItem] = []
+        api_cfg = self.config.get("api", {})
+        base_url = self.config["base_url"]
+        page_size = api_cfg.get("page_size", 500)
+
+        target = self.config.get("target_types", {})
+        always_types = set(target.get("always", []))
+        by_area_cfg = target.get("by_area", {})
+        by_area_types = set(by_area_cfg.get("types", []))
+        max_area = by_area_cfg.get("max_area", 15)
+
+        links = self.config.get("links", [])
+        cdp = CdpBrowser(
+            port=self.cdp_port,
+            checkpoint_key=f"{self.site_key}_storehouses",
+            config_links=links,
+        )
+        await cdp.connect()
+        page = cdp.page
+
+        try:
+            for link_info in links:
+                object_id = link_info["object_id"]
+                complex_name = link_info["complex_name"]
+                developer = link_info.get("developer", "")
+                city = link_info.get("city", "Казань")
+
+                # Resume: пропускаем уже обработанные
+                if cdp.is_completed(object_id):
+                    self.log.info("Пропуск %d — %s (уже обработан)", object_id, complex_name)
+                    continue
+
+                obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
+                self.log.info("Загрузка страницы %s ...", obj_url)
+
+                if not await cdp.goto(obj_url, object_id):
+                    continue  # капча не решена — пропускаем
+
+                object_items = await self._parse_object(
+                    page, base_url, api_cfg, object_id,
+                    complex_name, developer, city, page_size,
+                    always_types, by_area_types, max_area,
+                )
+                items.extend(object_items)
+
+                cdp.mark_completed(object_id)
+                await asyncio.sleep(1)
+
+            cdp.clear_checkpoint()
+
+        finally:
+            await cdp.close()
+
+        self.log.info("Итого %s: %d кладовок", self.site_name, len(items))
+        return items
+
+    async def _parse_all_headless(self) -> list[StorehouseItem]:
+        """Парсинг через headless Playwright (оригинальная логика)."""
         from playwright.async_api import async_playwright
 
         items: list[StorehouseItem] = []

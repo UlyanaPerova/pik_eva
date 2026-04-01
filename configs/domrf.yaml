@@ -118,6 +118,16 @@ links:
     developer: "Ак Барс Дом"
     city: "Казань"
 
+  - object_id: 51607
+    complex_name: "Дом на Исхаки"
+    developer: "Ак Барс Дом"
+    city: "Казань"
+
+  - object_id: 50971
+    complex_name: "Мифы"
+    developer: "Ак Барс Дом"
+    city: "Казань"
+
   # ── ПИК ─────────────────────────────────────────────────
   - object_id: 64780
     complex_name: "Ботаническая 3"
@@ -346,6 +356,44 @@ links:
 
   - object_id: 70848
     complex_name: "Царёво Сити"
+    developer: "Унистрой"
+    city: "Казань"
+
+  - object_id: 39470
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 39471
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 45951
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 45984
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 52132
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 52133
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 65186
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+  - object_id: 65158
+    complex_name: "Атмосфера"
+    developer: "Унистрой"
+    city: "Казань"
+
+  - object_id: 65412
+    complex_name: "Сервисный апарт-отель YES Горки"
     developer: "Унистрой"
     city: "Казань"
 

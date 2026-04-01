@@ -45,12 +45,89 @@ class ObjectInfo:
 
 
 class DomRfApartmentParser(BaseApartmentParser):
-    def __init__(self, config_path: str | Path | None = None):
+    def __init__(self, config_path: str | Path | None = None, cdp_port: int | None = None):
         if config_path is None:
             config_path = CONFIGS_DIR / "domrf_apartments.yaml"
         super().__init__(config_path)
+        self.cdp_port = cdp_port
 
     async def parse_all(self) -> tuple[list[ApartmentItem], list[ObjectInfo]]:
+        if self.cdp_port:
+            return await self._parse_all_cdp()
+        return await self._parse_all_headless()
+
+    async def _parse_all_cdp(self) -> tuple[list[ApartmentItem], list[ObjectInfo]]:
+        """Парсинг через CDP (настоящий Chrome) с обработкой капчи и resume."""
+        from parsers.cdp_browser import CdpBrowser
+
+        items: list[ApartmentItem] = []
+        object_infos: list[ObjectInfo] = []
+        api_cfg = self.config.get("api", {})
+        base_url = self.config["base_url"]
+        target_types = set(self.config.get("target_types", ["Квартира", "Квартира-студия"]))
+        links = self.config.get("links", [])
+
+        cdp = CdpBrowser(
+            port=self.cdp_port,
+            checkpoint_key=f"{self.site_key}_apartments",
+            config_links=links,
+        )
+        await cdp.connect()
+        page = cdp.page
+
+        try:
+            # Инициализация сессии
+            self.log.info("Инициализация сессии (главная страница)...")
+            if not await cdp.goto(base_url):
+                self.log.error("Не удалось загрузить главную страницу")
+                return items, object_infos
+
+            for link_info in links:
+                object_id = link_info["object_id"]
+                complex_name = link_info["complex_name"]
+                developer = link_info.get("developer", "")
+                city = link_info.get("city", "Казань")
+                building_override = link_info.get("building", "")
+
+                # Resume: пропускаем уже обработанные
+                if cdp.is_completed(object_id):
+                    self.log.info("Пропуск %d — %s (уже обработан)", object_id, complex_name)
+                    continue
+
+                obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
+                self.log.info("Загрузка страницы %s ...", obj_url)
+
+                if not await cdp.goto(obj_url, object_id):
+                    continue  # капча не решена — пропускаем
+
+                # Парсим информацию о доме
+                obj_info = await self._parse_header_info(
+                    page, base_url, object_id, complex_name, developer,
+                )
+                object_infos.append(obj_info)
+
+                # Парсим квартиры через API
+                object_items = await self._parse_object_apartments(
+                    page, base_url, api_cfg, object_id,
+                    complex_name, developer, city, target_types,
+                    building_override=building_override,
+                )
+                items.extend(object_items)
+
+                cdp.mark_completed(object_id)
+                await asyncio.sleep(1)
+
+            # Всё прошло — удаляем checkpoint
+            cdp.clear_checkpoint()
+
+        finally:
+            await cdp.close()
+
+        self.log.info("Итого %s квартиры: %d", self.site_name, len(items))
+        return items, object_infos
+
+    async def _parse_all_headless(self) -> tuple[list[ApartmentItem], list[ObjectInfo]]:
+        """Парсинг через headless Playwright (оригинальная логика)."""
         from playwright.async_api import async_playwright
 
         items: list[ApartmentItem] = []
@@ -78,6 +155,11 @@ class DomRfApartmentParser(BaseApartmentParser):
                 'Object.defineProperty(navigator, "webdriver", {get: () => undefined});'
             )
 
+            # Заходим на главную для установки куки ServicePipe
+            self.log.info("Инициализация сессии (главная страница)...")
+            await page.goto(base_url, timeout=60000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(10000)
+
             for link_info in self.config.get("links", []):
                 object_id = link_info["object_id"]
                 complex_name = link_info["complex_name"]
@@ -87,8 +169,12 @@ class DomRfApartmentParser(BaseApartmentParser):
 
                 obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
                 self.log.info("Загрузка страницы %s ...", obj_url)
-                await page.goto(obj_url, timeout=60000, wait_until="domcontentloaded")
-                await page.wait_for_timeout(8000)
+                try:
+                    await page.goto(obj_url, timeout=60000, wait_until="domcontentloaded")
+                except Exception as e:
+                    self.log.warning("Ошибка загрузки страницы %d: %s", object_id, e)
+                    continue
+                await page.wait_for_timeout(10000)
 
                 # Парсим информацию о доме со страницы
                 obj_info = await self._parse_header_info(
@@ -156,7 +242,9 @@ class DomRfApartmentParser(BaseApartmentParser):
                 """async (url) => {
                     const resp = await fetch(url);
                     if (!resp.ok) return null;
-                    return await resp.json();
+                    const text = await resp.text();
+                    try { return JSON.parse(text); }
+                    catch(e) { return null; }
                 }""",
                 agg_url,
             )
@@ -173,7 +261,9 @@ class DomRfApartmentParser(BaseApartmentParser):
                 """async (url) => {
                     const resp = await fetch(url);
                     if (!resp.ok) return null;
-                    return await resp.json();
+                    const text = await resp.text();
+                    try { return JSON.parse(text); }
+                    catch(e) { return null; }
                 }""",
                 obj_url,
             )
@@ -217,14 +307,20 @@ class DomRfApartmentParser(BaseApartmentParser):
         table_url = f"{base_url}{table_ep}"
         self.log.debug("fetch %s", table_url)
 
-        raw = await page.evaluate(
-            """async (url) => {
-                const resp = await fetch(url);
-                if (!resp.ok) return {error: resp.status, text: await resp.text()};
-                return await resp.json();
-            }""",
-            table_url,
-        )
+        try:
+            raw = await page.evaluate(
+                """async (url) => {
+                    const resp = await fetch(url);
+                    if (!resp.ok) return {error: resp.status, text: await resp.text()};
+                    const text = await resp.text();
+                    try { return JSON.parse(text); }
+                    catch(e) { return {error: 'not_json', text: text.substring(0, 300)}; }
+                }""",
+                table_url,
+            )
+        except Exception as e:
+            self.log.error("Ошибка fetch для объекта %d: %s", object_id, e)
+            return []
 
         if isinstance(raw, dict) and "error" in raw:
             self.log.error(
@@ -263,7 +359,10 @@ class DomRfApartmentParser(BaseApartmentParser):
             self.log.debug("    Пропущено: %s — %d шт.", ftype, cnt)
 
         # Batch fetch livingArea for all items
-        await self._fetch_living_areas(page, base_url, items)
+        try:
+            await self._fetch_living_areas(page, base_url, items)
+        except Exception as e:
+            self.log.warning("    Ошибка загрузки жилой площади: %s", e)
 
         rooms_counts = Counter(it.rooms for it in items)
         for rooms, cnt in sorted(rooms_counts.items()):
@@ -303,7 +402,8 @@ class DomRfApartmentParser(BaseApartmentParser):
                                     baseUrl + '/portal-kn/api/sales/portal/flat/' + id
                                 );
                                 if (!resp.ok) return {id, livingArea: null};
-                                const json = await resp.json();
+                                const text = await resp.text();
+                                let json; try { json = JSON.parse(text); } catch(e) { return {id, livingArea: null}; }
                                 return {id, livingArea: json.livingArea || null};
                             } catch (e) {
                                 return {id, livingArea: null};
