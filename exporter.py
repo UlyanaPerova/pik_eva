@@ -125,6 +125,17 @@ SITE_FILE_KEYS = {
     "domrf": "DomRF",
 }
 
+
+def _append_comment(cell, text: str, author: str = "Парсер") -> None:
+    """Добавить текст к комментарию ячейки, не затирая существующий."""
+    if cell.comment:
+        existing = cell.comment.text or ""
+        if text not in existing:  # не дублировать
+            cell.comment = Comment(f"{existing}\n{text}", author)
+    else:
+        cell.comment = Comment(text, author)
+
+
 # ── Колонки ──────────────────────────────────────────
 
 PRETTY_COLUMNS = [
@@ -328,7 +339,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
                 # Примечание к корпусу (секция)
                 if building_note:
-                    ws.cell(row=row, column=1).comment = Comment(building_note, "Parser")
+                    _append_comment(ws.cell(row=row, column=1), building_note, "Parser")
 
                 # Форматы
                 ws.cell(row=row, column=4).number_format = '0.00' if item.site == 'domrf' else '0.0'
@@ -356,7 +367,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                 section_name = getattr(item, '_section_name', None)
                 if section_name:
                     bc = ws.cell(row=row, column=1)
-                    bc.comment = Comment(section_name, "Парсер кладовок")
+                    _append_comment(bc, section_name, "Парсер кладовок")
                     bc.comment.width = 150
                     bc.comment.height = 30
 
@@ -533,7 +544,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
         # Примечание к корпусу (секция)
         if building_note:
-            ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
+            _append_comment(ws.cell(row=row, column=4), building_note, "Parser")
 
         # Форматы
         ws.cell(row=row, column=7).number_format = '0.00' if item.site == 'domrf' else '0.0'
@@ -556,7 +567,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
         section_name = getattr(item, '_section_name', None)
         if section_name:
             bc = ws.cell(row=row, column=4)
-            bc.comment = Comment(section_name, "Парсер кладовок")
+            _append_comment(bc, section_name, "Парсер кладовок")
             bc.comment.width = 150
             bc.comment.height = 30
 
@@ -623,9 +634,7 @@ def _add_new_item_comment(ws, row, col, item, previously_known, conn,
             date_str = _dt.now().strftime("%d.%m.%Y %H:%M")
 
         cell = ws.cell(row=row, column=col)
-        cell.comment = Comment(
-            f"Добавлена от {date_str}", "Парсер кладовок"
-        )
+        _append_comment(cell, f"Добавлена от {date_str}", "Парсер кладовок")
         cell.comment.width = 200
         cell.comment.height = 30
 
@@ -658,7 +667,7 @@ def _add_price_comment(ws, row, col, conn, item):
 
     if lines:
         cell = ws.cell(row=row, column=col)
-        cell.comment = Comment("\n".join(lines), "Парсер кладовок")
+        _append_comment(cell, "\n".join(lines), "Парсер кладовок")
         cell.comment.width = 350
         cell.comment.height = max(80, len(lines) * 20)
 
@@ -675,6 +684,6 @@ def _add_ppm_comment(ws, row, col, conn, item):
         lines.append(f"• {ppm:,.0f} ₽/м² ({date_short})")
 
     cell = ws.cell(row=row, column=col)
-    cell.comment = Comment("\n".join(lines), "Парсер кладовок")
+    _append_comment(cell, "\n".join(lines), "Парсер кладовок")
     cell.comment.width = 300
     cell.comment.height = max(60, len(lines) * 18)

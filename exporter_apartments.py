@@ -89,6 +89,17 @@ SITE_FILE_KEYS = {
     "domrf": "DomRF",
 }
 
+
+def _append_comment(cell, text: str, author: str = "Парсер") -> None:
+    """Добавить текст к комментарию ячейки, не затирая существующий."""
+    if cell.comment:
+        existing = cell.comment.text or ""
+        if text not in existing:  # не дублировать
+            cell.comment = Comment(f"{existing}\n{text}", author)
+    else:
+        cell.comment = Comment(text, author)
+
+
 # ── Колонки ──────────────────────────────────────────
 PRETTY_COLUMNS = [
     "Корпус",
@@ -339,7 +350,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                         cell.border = THIN_BORDER
 
                     if building_note:
-                        ws.cell(row=row, column=1).comment = Comment(building_note, "Parser")
+                        _append_comment(ws.cell(row=row, column=1), building_note, "Parser")
 
                     # Форматы
                     area_fmt = '0.00' if item.site == 'domrf' else '0.0'
@@ -370,7 +381,7 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                     section_name = getattr(item, '_section_name', None)
                     if section_name:
                         bc = ws.cell(row=row, column=1)
-                        bc.comment = Comment(section_name, "Парсер квартир")
+                        _append_comment(bc, section_name, "Парсер квартир")
                         bc.comment.width = 150
                         bc.comment.height = 30
 
@@ -535,7 +546,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
                 f"{date_str}. Сохранено пользовательское значение.\n"
                 f"Значение при парсинге: {edit.new_parser_value}"
             )
-            cell.comment = Comment(comment_text, "Smart Merge")
+            _append_comment(cell, comment_text, "Smart Merge")
             cell.comment.width = 300
             cell.comment.height = 50
 
@@ -547,7 +558,8 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
                 ws.cell(row=row, column=c).fill = NEW_ITEM_FILL
             from datetime import datetime as _dt
             _c = ws.cell(row=row, column=7)  # Номер
-            _c.comment = Comment(
+            _append_comment(
+                _c,
                 f"Новая квартира от {_dt.now().strftime('%d.%m.%Y')}",
                 "Smart Merge",
             )
@@ -556,13 +568,12 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
         elif is_prev_new:
             # Был новым в прошлый раз — без цвета, но комментарий остаётся
             _c = ws.cell(row=row, column=7)
-            if not _c.comment:
-                _c.comment = Comment("Новая квартира (предыдущий парсинг)", "Smart Merge")
-                _c.comment.width = 200
-                _c.comment.height = 30
+            _append_comment(_c, "Новая квартира (предыдущий парсинг)", "Smart Merge")
+            _c.comment.width = 200
+            _c.comment.height = 30
 
         if building_note:
-            ws.cell(row=row, column=4).comment = Comment(building_note, "Parser")
+            _append_comment(ws.cell(row=row, column=4), building_note, "Parser")
 
         # Форматы
         area_fmt = '0.00' if item.site == 'domrf' else '0.0'
@@ -588,7 +599,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
         section_name = getattr(item, '_section_name', None)
         if section_name:
             bc = ws.cell(row=row, column=4)
-            bc.comment = Comment(section_name, "Парсер квартир")
+            _append_comment(bc, section_name, "Парсер квартир")
             bc.comment.width = 150
             bc.comment.height = 30
 
@@ -639,11 +650,13 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids,
                     # Комментарий
                     comment_cell = ws.cell(row=sold_row, column=7)  # Номер
                     if is_first_sold:
-                        comment_cell.comment = Comment(
+                        _append_comment(
+                            comment_cell,
                             f"Снята с продажи от {date_str}", "Smart Merge"
                         )
                     else:
-                        comment_cell.comment = Comment(
+                        _append_comment(
+                            comment_cell,
                             "Снята с продажи (предыдущий парсинг)", "Smart Merge"
                         )
                     comment_cell.comment.width = 250
@@ -813,9 +826,7 @@ def _add_new_item_comment(ws, row, col, item, previously_known, conn,
             date_str = _dt.now().strftime("%d.%m.%Y %H:%M")
 
         cell = ws.cell(row=row, column=col)
-        cell.comment = Comment(
-            f"Добавлена от {date_str}", "Парсер квартир"
-        )
+        _append_comment(cell, f"Добавлена от {date_str}", "Парсер квартир")
         cell.comment.width = 200
         cell.comment.height = 30
 
@@ -847,7 +858,7 @@ def _add_price_comment(ws, row, col, conn, item):
 
     if lines:
         cell = ws.cell(row=row, column=col)
-        cell.comment = Comment("\n".join(lines), "Парсер квартир")
+        _append_comment(cell, "\n".join(lines), "Парсер квартир")
         cell.comment.width = 350
         cell.comment.height = max(80, len(lines) * 20)
 
@@ -864,6 +875,6 @@ def _add_ppm_comment(ws, row, col, conn, item):
         lines.append(f"• {ppm:,.0f} ₽/м² ({date_short})")
 
     cell = ws.cell(row=row, column=col)
-    cell.comment = Comment("\n".join(lines), "Парсер квартир")
+    _append_comment(cell, "\n".join(lines), "Парсер квартир")
     cell.comment.width = 300
     cell.comment.height = max(60, len(lines) * 18)

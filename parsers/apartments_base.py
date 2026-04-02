@@ -142,20 +142,24 @@ def init_db() -> sqlite3.Connection:
 def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
     """
     Сохранить спарсенные данные.
-    Записывает новую строку только если цена изменилась.
+    Записывает новую строку если изменилась цена, building или area.
     """
     now = datetime.now().isoformat(timespec="seconds")
     updated = 0
     for item in items:
         row = conn.execute(
-            """SELECT price, price_per_meter FROM apartment_prices
+            """SELECT price, price_per_meter, building, area FROM apartment_prices
                WHERE site = ? AND item_id = ?
                ORDER BY parsed_at DESC LIMIT 1""",
             (item.site, item.item_id),
         ).fetchone()
 
-        if row and row[0] == item.price and row[1] == item.price_per_meter:
-            continue
+        if row:
+            price_same = row[0] == item.price and row[1] == item.price_per_meter
+            building_same = row[2] == item.building
+            area_same = row[3] == item.area
+            if price_same and building_same and area_same:
+                continue
 
         conn.execute(
             """INSERT INTO apartment_prices
@@ -363,11 +367,94 @@ def load_config(config_path: str | Path) -> dict:
         return yaml.safe_load(f)
 
 
+def validate_config(config: dict, *, require_building: bool = True) -> None:
+    """
+    Проверить конфиг квартир на ошибки перед запуском парсинга.
+
+    - Каждая запись в links[] должна содержать object_id (int > 0) и complex_name (str).
+    - Если require_building=True, проверяется наличие поля building.
+    - Опциональные поля city/developer — предупреждение, если отсутствуют.
+    - Дубликаты по (object_id, building) — предупреждение.
+
+    Raises:
+        ValueError: если есть критические ошибки (отсутствуют обязательные поля).
+    """
+    links = config.get("links")
+    if links is None:
+        raise ValueError("Конфиг не содержит секцию 'links'")
+    if not isinstance(links, list):
+        raise ValueError("Секция 'links' должна быть списком")
+    if not links:
+        logger.warning("Конфиг: секция 'links' пуста — нечего парсить")
+        return
+
+    errors: list[str] = []
+    seen: set[tuple] = set()
+
+    for idx, entry in enumerate(links):
+        prefix = f"links[{idx}]"
+
+        if not isinstance(entry, dict):
+            errors.append(f"{prefix}: запись должна быть словарём, получено {type(entry).__name__}")
+            continue
+
+        # --- object_id (обязательное) ---
+        obj_id = entry.get("object_id")
+        if obj_id is None:
+            errors.append(f"{prefix}: отсутствует обязательное поле 'object_id'")
+        elif not isinstance(obj_id, int):
+            errors.append(f"{prefix}: 'object_id' должен быть целым числом, получено {type(obj_id).__name__}: {obj_id!r}")
+        elif obj_id <= 0:
+            errors.append(f"{prefix}: 'object_id' должен быть > 0, получено {obj_id}")
+
+        # --- complex_name (обязательное) ---
+        cname = entry.get("complex_name")
+        if cname is None:
+            errors.append(f"{prefix}: отсутствует обязательное поле 'complex_name'")
+        elif not isinstance(cname, str) or not cname.strip():
+            errors.append(f"{prefix}: 'complex_name' должен быть непустой строкой, получено {cname!r}")
+
+        # --- building (обязательное для квартир) ---
+        building = entry.get("building")
+        if require_building and building is None:
+            errors.append(f"{prefix} (object_id={obj_id}): отсутствует обязательное поле 'building'")
+
+        # --- опциональные поля: city, developer ---
+        if "city" not in entry:
+            logger.warning(
+                "Конфиг %s (object_id=%s): отсутствует поле 'city', будет использовано значение по умолчанию",
+                prefix, obj_id,
+            )
+        if "developer" not in entry:
+            logger.warning(
+                "Конфиг %s (object_id=%s): отсутствует поле 'developer'",
+                prefix, obj_id,
+            )
+
+        # --- дубликаты ---
+        dup_key = (obj_id, entry.get("building", ""))
+        if dup_key in seen:
+            logger.warning(
+                "Конфиг %s: дубликат записи (object_id=%s, building=%r)",
+                prefix, obj_id, entry.get("building", ""),
+            )
+        else:
+            seen.add(dup_key)
+
+    if errors:
+        msg = "Ошибки валидации конфига:\n" + "\n".join(f"  - {e}" for e in errors)
+        logger.error(msg)
+        raise ValueError(msg)
+
+    logger.info("Конфиг валиден: %d записей в links", len(links))
+
+
 # ─── Базовый парсер ──────────────────────────────────────
 
 class BaseApartmentParser(ABC):
     def __init__(self, config_path: str | Path):
         self.config = load_config(config_path)
+        validate_config(self.config, require_building=True)
         self.site_name: str = self.config["name"]
         self.site_key: str = self.config.get("key", self.site_name.lower())
         self.log = logging.getLogger(f"apartments.{self.site_key}")
