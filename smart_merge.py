@@ -422,9 +422,9 @@ def _item_to_flat_values(item: ApartmentItem) -> dict[int, Any]:
         7: number_val,
         8: item.floor,
         9: item.area,
-        10: living if living else "",
-        11: item.price if item.price else "",
-        12: item.price_per_meter if item.price_per_meter else "",
+        10: living if living is not None else "",
+        11: item.price if item.price is not None else "",
+        12: item.price_per_meter if item.price_per_meter is not None else "",
     }
 
 
