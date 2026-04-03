@@ -77,16 +77,10 @@ def calc_first_stage(
         scoring = load_scoring_config()
     pts = 0
 
-    # 1. Срок ввода (дни)
+    # 1. Срок ввода
     if days_until is not None:
-        if days_until < 0:
-            # Дом уже сдан: 20 баллов, убывает на 20/180 за каждый день в прошлом
-            pts += max(0, 20 + days_until * (20 / 180))
-        elif days_until < 365:
-            pts += 20 - days_until * (10 / 365)
-        elif days_until < 730:
-            pts += 10 - (days_until - 365) * (5 / 365)
-        # else: 0
+        months = days_until / 30.0
+        pts += _score_by_thresholds(months, scoring["deadline_months"])
 
     # 4. Квартирография
     total = sum(rooms_count.values()) if rooms_count else 0
@@ -236,15 +230,16 @@ def generate_first_stage_formula(row: int, scoring: dict | None = None) -> str:
     r = row
     c = JK_COLS
 
-    # Защита: если нет кладовок ни от ДОМ.РФ, ни от застройщика — 0
-    guard = f'IF(OR({c["store_domrf"]}{r}=0,{c["store_dev"]}{r}=0),0,IFERROR('
+    # Защита: если данных нет — 0
+    guard = (f'IF(OR({c["complex"]}{r}="",'
+             f'{c["building"]}{r}="",'
+             f'COUNTA({c["apt_store_ratio"]}{r}:{c["nl_4k"]}{r})<15),0,IFERROR(')
 
     # ── 1. Срок ввода (дни) ──
-    # Линейная интерполяция: отрицательные дни = дом уже сдан (бонус убывает)
-    d = c["days"]
-    f1 = (f'(IF({d}{r}<0,20+{d}{r}*(20/180),'
-          f'IF({d}{r}<365,20-{d}{r}*(10/365),'
-          f'IF({d}{r}<730,10-({d}{r}-365)*(5/365),0))))')
+    # Линейная интерполяция (не из yaml — специфическая формула)
+    f1 = (f'(IF(OR({c["days"]}{r}="",{c["days"]}{r}=0),0,'
+          f'IF({c["days"]}{r}<365,20-{c["days"]}{r}*(10/365),'
+          f'IF({c["days"]}{r}<730,10-({c["days"]}{r}-365)*(5/365),0))))')
 
     # ── 2. Соотнош. квартир/кладовых (M) ──
     # Нелинейная шкала (не из yaml — специфическая формула)

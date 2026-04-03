@@ -85,21 +85,9 @@ class PikParser(BaseParser):
         if not m:
             raise ValueError("__NEXT_DATA__ не найден на странице")
 
-        try:
-            next_data = json.loads(m.group(1))
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Не удалось распарсить __NEXT_DATA__ как JSON: {exc}"
-            ) from exc
-
-        try:
-            state = next_data["props"]["pageProps"]["initialState"]
-            search = state["searchService"]
-        except KeyError as exc:
-            raise ValueError(
-                f"Структура __NEXT_DATA__ изменилась — не найден ключ {exc}. "
-                "Возможно, ПИК обновил сайт."
-            ) from exc
+        next_data = json.loads(m.group(1))
+        state = next_data["props"]["pageProps"]["initialState"]
+        search = state["searchService"]
 
         # 2. Строим маппинг flat_id → (bulk_name, section_name, section_number)
         #    через filteredChessplan.data.bulks → sections → floors → flats

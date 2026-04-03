@@ -67,8 +67,9 @@ class Smu88Parser(BaseParser):
                 await page.wait_for_timeout(1500)
                 click_count += 1
 
-                if click_count % 20 == 0:
-                    self.log.info("    Клик %d", click_count)
+                if click_count > 30:  # защита от бесконечного цикла
+                    self.log.warning("Превышен лимит кликов (30)")
+                    break
 
             self.log.info("  Кликов «Показать ещё»: %d", click_count)
 

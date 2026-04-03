@@ -231,11 +231,8 @@ def backup_db() -> Optional[Path]:
 
     backups = sorted(BACKUP_DIR.glob("apartments_*.db"), reverse=True)
     for old in backups[10:]:
-        try:
-            old.unlink()
-            logger.debug("Удалён старый бэкап: %s", old.name)
-        except FileNotFoundError:
-            pass
+        old.unlink()
+        logger.debug("Удалён старый бэкап: %s", old.name)
 
     return backup_path
 

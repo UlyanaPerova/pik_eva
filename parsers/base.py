@@ -215,11 +215,8 @@ def backup_db() -> Optional[Path]:
     # Удаляем старые бэкапы (оставляем 10 последних)
     backups = sorted(BACKUP_DIR.glob("history_*.db"), reverse=True)
     for old in backups[10:]:
-        try:
-            old.unlink()
-            logger.debug("Удалён старый бэкап: %s", old.name)
-        except FileNotFoundError:
-            pass
+        old.unlink()
+        logger.debug("Удалён старый бэкап: %s", old.name)
 
     return backup_path
 

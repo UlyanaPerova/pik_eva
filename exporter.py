@@ -298,8 +298,8 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             # Данные
             for i, item in enumerate(complex_items):
                 is_last = i == len(complex_items) - 1
-                cur_bld = (complex_items[i].building or "").split("||")[0].strip()
-                next_bld = (complex_items[i + 1].building or "").split("||")[0].strip() if not is_last else ""
+                cur_bld = complex_items[i].building.split("||")[0].strip()
+                next_bld = complex_items[i + 1].building.split("||")[0].strip() if not is_last else ""
                 is_last_in_building = is_last or cur_bld != next_bld
 
                 storehouse_count = counts[count_key(item)]
@@ -494,7 +494,7 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
             number_val = item.item_number or ""
 
         cur_complex = (item.city, item.site, item.complex_name)
-        cur_building = (item.city, item.site, item.complex_name, (item.building or "").split("||")[0].strip())
+        cur_building = (item.city, item.site, item.complex_name, item.building.split("||")[0].strip())
 
         # Фиксируем конец предыдущего ЖК
         if cur_complex != prev_complex and prev_complex is not None:
