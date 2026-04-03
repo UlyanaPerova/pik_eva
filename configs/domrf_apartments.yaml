@@ -234,16 +234,6 @@ links:
     complex_name: "Адали"
     developer: "СМУ-88"
     city: "Казань"
-  - object_id: 62766
-    building: "2"
-    complex_name: "Адали"
-    developer: "СМУ-88"
-    city: "Казань"
-  - object_id: 62766
-    building: "3"
-    complex_name: "Адали"
-    developer: "СМУ-88"
-    city: "Казань"
 
   - object_id: 53472
     building: "1"

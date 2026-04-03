@@ -733,6 +733,8 @@ def _aggregate(
             config_buildings_by_complex[ck][_norm(b.building)] = key
 
     complex_dev_stores: dict[tuple, list[dict]] = defaultdict(list)
+    # Кладовки застройщика без корпуса — для назначения позже
+    complex_dev_storehouses: dict[tuple, list[dict]] = defaultdict(list)
 
     for st in dev_stores:
         cn = _apply_alias(st["complex_name"])
@@ -741,11 +743,15 @@ def _aggregate(
         if ck in config_complexes:
             complex_dev_stores[ck].append(st)
             # Привязать к совпадающему корпусу (после alias + нормализации)
+            # Используем _building_base, чтобы "1||секция 1" → "1" совпало с конфиг "1"
             resolved_bld = _apply_building_alias(cn, st["building"])
-            norm_bld = _norm(resolved_bld)
+            norm_bld = _norm(_building_base(resolved_bld))
             matched_key = config_buildings_by_complex.get(ck, {}).get(norm_bld)
             if matched_key and matched_key in buildings:
                 buildings[matched_key].dev_storehouses.append(st)
+            elif not norm_bld:
+                # Пустой корпус (напр. smu88) — сохранить на уровне комплекса
+                complex_dev_storehouses[ck].append(st)
             else:
                 # Корпус не совпал — создать новую строку
                 b = _get_or_create(st["city"], cn, st["building"],
@@ -766,8 +772,9 @@ def _aggregate(
 
         if ck in config_complexes:
             # Проверяем: совпадает ли корпус (после alias + нормализации)?
+            # Используем _building_base, чтобы "УБ-1||секция 1" → "УБ-1" совпало с конфиг "УБ1"
             resolved_bld = _apply_building_alias(cn, apt["building"])
-            norm_bld = _norm(resolved_bld)
+            norm_bld = _norm(_building_base(resolved_bld))
             matched_key = config_buildings_by_complex.get(ck, {}).get(norm_bld)
             if matched_key:
                 dev_apt_groups[matched_key].append(apt)
@@ -809,7 +816,10 @@ def _aggregate(
         if ba:
             # Per-building данные найдены — идеальный вариант
             b.domrf_apt_count = ba.apt_count
-            b.domrf_store_count = ba.store_count
+            # domrf_store_count — НЕ присваиваем здесь, т.к. building_agg_data может
+            # содержать DomRF-кладовки с category_id-prefix ("7||подъезд N" → "7"),
+            # который случайно совпадает с config building "7".
+            # Назначение происходит в Шаге 4b.
             b.rooms_count = dict(ba.rooms_count)
             b.avg_area = dict(ba.avg_area)
             b.avg_non_living = dict(ba.avg_non_living)
@@ -885,24 +895,8 @@ def _aggregate(
             # Нежилая площадь — только из DomRF, тут не заполняем
 
     # ─── Шаг 4: Кладовки дом.рф fallback ───
-    # Если у комплекса нет кладовок застройщика, используем дом.рф
-    complex_has_dev: dict[tuple, bool] = defaultdict(bool)
-    for b in buildings.values():
-        if b.dev_storehouses:
-            ck = _complex_key(b.city, b.complex_name)
-            complex_has_dev[ck] = True
-
-    for ck, ca in complex_agg.items():
-        if not complex_has_dev.get(ck, False) and ca.storehouses:
-            # Создаём "сводные" строки для кладовок дом.рф
-            by_bld: dict[str, list[dict]] = defaultdict(list)
-            for st in ca.storehouses:
-                by_bld[st["building"]].append(st)
-            for bld_name, bld_stores in by_bld.items():
-                city = bld_stores[0]["city"]
-                cn = bld_stores[0]["complex_name"]
-                b = _get_or_create(city, cn, bld_name)
-                b.domrf_storehouses = bld_stores
+    # Назначается ПОСЛЕ Шага 5b (удаления мусорных строк), чтобы не создавать
+    # лишние строки. Выполняется в Шаге 4b ниже.
 
     # ─── Шаг 5a: Сохранить данные ДОМ.РФ ПЕРЕД удалением мусорных строк ───
     # Ссылки, commissioning, object_ids и другие DomRF-данные могут быть
@@ -942,6 +936,52 @@ def _aggregate(
     for key in keys_to_remove:
         del buildings[key]
 
+    # ─── Шаг 4b: Кладовки ДОМ.РФ и комплекс-level dev кладовки ───
+    # Выполняется ПОСЛЕ удаления мусорных строк.
+
+    # Пересчитать complex_has_dev после Step 5b
+    complex_has_dev: dict[tuple, bool] = defaultdict(bool)
+    for b in buildings.values():
+        if b.dev_storehouses:
+            complex_has_dev[_complex_key(b.city, b.complex_name)] = True
+
+    # Назначить комплекс-level кладовки застройщика (smu88 с пустым building)
+    for ck, stores in complex_dev_storehouses.items():
+        ck_buildings = [b for b in buildings.values()
+                        if _complex_key(b.city, b.complex_name) == ck]
+        if not ck_buildings:
+            continue
+        if len(ck_buildings) == 1:
+            ck_buildings[0].dev_storehouses.extend(stores)
+        else:
+            # Несколько корпусов — добавить к первому
+            # (лучше не дублировать по всем)
+            ck_buildings[0].dev_storehouses.extend(stores)
+        complex_has_dev[ck] = True
+
+    # Назначить кладовки ДОМ.РФ для комплексов без dev кладовок
+    for ck, ca in complex_agg.items():
+        if complex_has_dev.get(ck, False) or not ca.storehouses:
+            continue
+        ck_buildings = [b for b in buildings.values()
+                        if _complex_key(b.city, b.complex_name) == ck]
+        if ck_buildings:
+            # Есть конфиг-корпуса — назначить всё на первый корпус
+            # (DomRF кладовки не имеют надёжной привязки к конкретному корпусу)
+            ck_buildings[0].domrf_storehouses = list(ca.storehouses)
+            ck_buildings[0].domrf_store_count = len(ca.storehouses)
+        else:
+            # Нет конфиг-корпусов — создать строки по building_base
+            by_bld: dict[str, list[dict]] = defaultdict(list)
+            for st in ca.storehouses:
+                by_bld[_building_base(st["building"])].append(st)
+            for bld_name, bld_stores in by_bld.items():
+                city = bld_stores[0]["city"]
+                cn = bld_stores[0]["complex_name"]
+                b = _get_or_create(city, cn, bld_name)
+                b.domrf_storehouses = bld_stores
+                b.domrf_store_count = len(bld_stores)
+
     # ─── Шаг 6: Пропагация данных на уровне комплекса ───
     # Средняя цена м² застройщика — на уровне комплекса
     complex_dev_ppm: dict[tuple, float] = {}
@@ -980,29 +1020,14 @@ def _aggregate(
     # П.3: для корпусов с ppm=0 — взять от соседнего корпуса
     _apply_neighbor_ppm(list(buildings.values()))
 
-    # Остаток кладовок — per-building из привязанных кладовок
+    # dev_store_count — из реальных привязанных кладовок
     for b in buildings.values():
         if b.dev_storehouses:
             b.dev_store_count = len(b.dev_storehouses)
 
-    # Fallback для корпусов без привязанных кладовок — total по ЖК (dev)
-    for ck, stores in complex_dev_stores.items():
-        count = len(stores)
-        for b in buildings.values():
-            if _complex_key(b.city, b.complex_name) == ck and not b.dev_store_count:
-                b.dev_store_count = count
-
-    # Fallback для domrf_store_count на complex-level
-    # (если per-building не матчится — берём total по ЖК)
-    complex_domrf_store_count: dict[tuple, int] = {}
-    for ck_key, ca in complex_agg.items():
-        if ca.store_count:
-            complex_domrf_store_count[ck_key] = ca.store_count
-    for b in buildings.values():
-        if not b.domrf_store_count:
-            ck = _complex_key(b.city, b.complex_name)
-            if ck in complex_domrf_store_count:
-                b.domrf_store_count = complex_domrf_store_count[ck]
+    # domrf_store_count — уже задан в Шаге 3 и Шаге 4b из реальных данных.
+    # Не применяем complex-level fallback для domrf_store_count,
+    # чтобы не показывать одинаковое число кладовок на все корпуса.
 
     # Нормализация имён застройщиков
     for b in buildings.values():
@@ -1053,13 +1078,19 @@ def calc_first_stage(bd: BuildingAgg, scoring: dict) -> int:
     """Первый этап: критерии 1–10 (7-10 зависят от ручных данных → пока 0)."""
     pts = 0
 
-    # 1. Срок ввода
+    # 1. Срок ввода (дни)
     if bd.days_until is not None:
-        months = bd.days_until / 30.0
-        pts += _score_by_thresholds(months, scoring["deadline_months"])
+        if bd.days_until < 0:
+            # Дом уже сдан: 20 баллов, убывает на 20/180 за каждый день в прошлом
+            pts += max(0, 20 + bd.days_until * (20 / 180))
+        elif bd.days_until < 365:
+            pts += 20 - bd.days_until * (10 / 365)
+        elif bd.days_until < 730:
+            pts += 10 - (bd.days_until - 365) * (5 / 365)
+        # else: 0
 
     # 2. Соотношение квартир / кладовых
-    store_total = bd.domrf_store_count or bd.dev_store_count
+    store_total = bd.dev_store_count or bd.domrf_store_count
     if store_total:
         ratio = bd.domrf_apt_count / store_total
         pts += _score_by_thresholds(ratio, scoring["apartment_storehouse_ratio"])
@@ -1076,7 +1107,7 @@ def calc_first_stage(bd: BuildingAgg, scoring: dict) -> int:
     # а не domrf_apt_count (может быть из ObjectInfo / complex-level)
     total = sum(bd.rooms_count.values()) if bd.rooms_count else 0
     if not total:
-        total = bd.domrf_apt_count or 1
+        total = bd.domrf_apt_count if bd.domrf_apt_count else 1
     kvart = scoring["kvartirografia"]
     s1k = (bd.rooms_count.get(0, 0) + bd.rooms_count.get(1, 0)) / total * 100
     two_k = bd.rooms_count.get(2, 0) / total * 100
@@ -1396,7 +1427,7 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
         if not storehouses:
             continue
 
-        store_total = bd.domrf_store_count or bd.dev_store_count
+        store_total = bd.dev_store_count or bd.domrf_store_count
         # Количество квартир: domrf_apt_count, или sum(rooms_count) как fallback
         apt_total = bd.domrf_apt_count
         if not apt_total and bd.rooms_count:
@@ -1593,7 +1624,7 @@ def _fill_jk_sheet(
         m = manual.get(key, {})
         ck = _complex_key(bd.city, bd.complex_name)
 
-        store_total = bd.domrf_store_count or bd.dev_store_count
+        store_total = bd.dev_store_count or bd.domrf_store_count
         # Количество квартир: domrf_apt_count, или sum(rooms_count) как fallback
         apt_total = bd.domrf_apt_count
         if not apt_total and bd.rooms_count:

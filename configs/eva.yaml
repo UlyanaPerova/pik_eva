@@ -22,8 +22,8 @@ building_aliases:
     "Патриса Лумумбы": "1"
   "Адали":
     "Дом 1": "1"
-    "Дом 2": "2"
-    "Дом 3": "3"
+    "Дом 2": "1"
+    "Дом 3": "1"
   "Вознесенский Квартал":
     "^Дом I очередь": "1"
     "^Дом II очередь": "2"
@@ -112,18 +112,17 @@ scoring:
       - {max: 26, points: 1}
       - {max: 9999, points: 0}
     two_k:
-      - {max: 28, points: 0}
+      - {max: 28, points: 2}
+      - {max: 35, points: 1}
+      - {max: 9999, points: 0}
+    three_k:
       - {max: 35, points: 2}
       - {max: 45, points: 1}
       - {max: 9999, points: 0}
-    three_k:
-      - {max: 35, points: 0}
-      - {max: 45, points: 2}
-      - {max: 9999, points: 1}
     four_k:
-      - {max: 40, points: 0}
-      - {max: 60, points: 2}
-      - {max: 9999, points: 1}
+      - {max: 40, points: 2}
+      - {max: 60, points: 1}
+      - {max: 9999, points: 0}
 
   # 7. Соотношение квартир к балконам (РУЧНОЙ ВВОД)
   balcony_ratio:
