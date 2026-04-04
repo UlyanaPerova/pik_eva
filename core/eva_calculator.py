@@ -966,25 +966,31 @@ def _aggregate(
             ck_buildings[0].dev_storehouses.extend(stores)
         complex_has_dev[ck] = True
 
-    # Назначить кладовки ДОМ.РФ для комплексов без dev кладовок
+    # Назначить кладовки ДОМ.РФ для комплексов без dev кладовок.
+    # Распределяем per-building через _resolve_building (object_id → config building).
     for ck, ca in complex_agg.items():
         if complex_has_dev.get(ck, False) or not ca.storehouses:
             continue
+        # Группируем кладовки по resolved building
+        by_bld: dict[str, list[dict]] = defaultdict(list)
+        for st in ca.storehouses:
+            bld_resolved = _resolve_building(st.get("building", ""), st.get("object_id"))
+            by_bld[_norm(bld_resolved)].append(st)
+
         ck_buildings = [b for b in buildings.values()
                         if _complex_key(b.city, b.complex_name) == ck]
-        if ck_buildings:
-            # Есть конфиг-корпуса — назначить всё на первый корпус
-            # (DomRF кладовки не имеют надёжной привязки к конкретному корпусу)
-            ck_buildings[0].domrf_storehouses = list(ca.storehouses)
-            ck_buildings[0].domrf_store_count = len(ca.storehouses)
-        else:
-            # Нет конфиг-корпусов — создать строки по building_base
-            by_bld: dict[str, list[dict]] = defaultdict(list)
-            for st in ca.storehouses:
-                by_bld[_building_base(st["building"])].append(st)
-            for bld_name, bld_stores in by_bld.items():
+        ck_bld_map = {_norm(b.building): b for b in ck_buildings}
+
+        for bld_key, bld_stores in by_bld.items():
+            if bld_key in ck_bld_map:
+                b = ck_bld_map[bld_key]
+                b.domrf_storehouses = bld_stores
+                b.domrf_store_count = len(bld_stores)
+            else:
+                # Нет конфиг-корпуса — создать строку
                 city = bld_stores[0]["city"]
                 cn = bld_stores[0]["complex_name"]
+                bld_name = _building_base(bld_stores[0]["building"])
                 b = _get_or_create(city, cn, bld_name)
                 b.domrf_storehouses = bld_stores
                 b.domrf_store_count = len(bld_stores)
