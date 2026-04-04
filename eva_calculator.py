@@ -152,7 +152,7 @@ def _load_apartments(conn: sqlite3.Connection, site_filter: str | None = None) -
     query = """
         SELECT a.site, a.city, a.complex_name, a.building, a.item_id,
                a.rooms, a.floor, a.area, a.price, a.price_per_meter,
-               a.living_area, a.url
+               a.living_area, a.url, a.object_id
         FROM apartment_prices a
         INNER JOIN (
             SELECT site, item_id, MAX(parsed_at) AS max_pa
@@ -168,7 +168,7 @@ def _load_apartments(conn: sqlite3.Connection, site_filter: str | None = None) -
         rows = conn.execute(query).fetchall()
     cols = ["site", "city", "complex_name", "building", "item_id",
             "rooms", "floor", "area", "price", "price_per_meter",
-            "living_area", "url"]
+            "living_area", "url", "object_id"]
     return [dict(zip(cols, r)) for r in rows]
 
 
@@ -539,37 +539,36 @@ def _aggregate(
         if obj_id and bld:
             config_bld_by_objid[obj_id] = bld
 
-    def _resolve_building(raw_building: str, complex_name: str) -> str:
+    def _resolve_building(raw_building: str, obj_id: int | None) -> str:
         """Привести building из БД к нормализованному имени config-корпуса.
 
-        Если в БД уже стоит конфигурационное имя (напр. 'М1/ПК-1||подъезд 2'),
-        берёт его. Если стоит API-формат ('1||подъезд 2'), пытается найти
-        конфигурационное имя через маппинг object_id → building.
+        Приоритет:
+        1. object_id → config_building (через маппинг из конфига)
+        2. Если building содержит буквы — уже конфигурационное имя
+        3. Fallback: API-формат как есть
         """
+        # Через object_id — самый надёжный способ
+        if obj_id and obj_id in config_bld_by_objid:
+            return config_bld_by_objid[obj_id]
         bld_base = _building_base(raw_building)
-        # Если building_base похож на конфигурационное имя (содержит буквы),
-        # используем его напрямую
-        if re.search(r'[а-яА-ЯёЁa-zA-Z]', bld_base):
-            return bld_base
-        # API-формат ("1", "2", "3.1") — нужно маппить через конфиг
-        # Ищем все object_id для этого комплекса и смотрим, какие корпуса они дают
-        return bld_base  # fallback: используем как есть
+        return bld_base
 
     # Per-building агрегация квартир дом.рф
     # Ключ: (norm_city, norm_complex, norm_building)
+    # Используем _resolve_building для ремапа API building → config building
     domrf_apt_by_building: dict[tuple, list[dict]] = defaultdict(list)
     for apt in domrf_apts:
         ck = _complex_key(apt["city"], apt["complex_name"])
-        bld_base = _building_base(apt.get("building", ""))
-        bk = (ck[0], ck[1], _norm(bld_base))
+        bld_resolved = _resolve_building(apt.get("building", ""), apt.get("object_id"))
+        bk = (ck[0], ck[1], _norm(bld_resolved))
         domrf_apt_by_building[bk].append(apt)
 
     # Per-building агрегация кладовок дом.рф
     domrf_store_by_building: dict[tuple, list[dict]] = defaultdict(list)
     for st in domrf_stores:
         ck = _complex_key(st["city"], st["complex_name"])
-        bld_base = _building_base(st.get("building", ""))
-        bk = (ck[0], ck[1], _norm(bld_base))
+        bld_resolved = _resolve_building(st.get("building", ""), st.get("object_id"))
+        bk = (ck[0], ck[1], _norm(bld_resolved))
         domrf_store_by_building[bk].append(st)
 
     # Расчёт агрегатов per-building
@@ -816,10 +815,8 @@ def _aggregate(
         if ba:
             # Per-building данные найдены — идеальный вариант
             b.domrf_apt_count = ba.apt_count
-            # domrf_store_count — НЕ присваиваем здесь, т.к. building_agg_data может
-            # содержать DomRF-кладовки с category_id-prefix ("7||подъезд N" → "7"),
-            # который случайно совпадает с config building "7".
-            # Назначение происходит в Шаге 4b.
+            if ba.store_count:
+                b.domrf_store_count = ba.store_count
             b.rooms_count = dict(ba.rooms_count)
             b.avg_area = dict(ba.avg_area)
             b.avg_non_living = dict(ba.avg_non_living)
@@ -844,12 +841,6 @@ def _aggregate(
             # т.к. это привело бы к присвоению данных ВСЕГО ЖК одному корпусу.
             ca = complex_agg.get(ck)
             if ca:
-                if not b.rooms_count:
-                    b.rooms_count = dict(ca.rooms_count)
-                if not b.avg_area:
-                    b.avg_area = dict(ca.avg_area)
-                if not b.avg_non_living:
-                    b.avg_non_living = dict(ca.avg_non_living)
                 # domrf_apt_count: используем complex-level ТОЛЬКО если в комплексе
                 # ровно один корпус (тогда complex == building)
                 num_buildings_in_complex = sum(
@@ -857,12 +848,28 @@ def _aggregate(
                     if _complex_key(ob.city, ob.complex_name) == ck
                 )
                 if num_buildings_in_complex == 1:
+                    if not b.rooms_count:
+                        b.rooms_count = dict(ca.rooms_count)
+                    if not b.avg_area:
+                        b.avg_area = dict(ca.avg_area)
+                    if not b.avg_non_living:
+                        b.avg_non_living = dict(ca.avg_non_living)
                     if not b.domrf_apt_count:
                         b.domrf_apt_count = ca.apt_count
                     if not b.domrf_store_count:
                         b.domrf_store_count = ca.store_count
                 else:
-                    if not b.domrf_apt_count and ca.apt_count:
+                    # Несколько корпусов: complex-level квартирографию
+                    # присваиваем ТОЛЬКО если есть per-building apt_count
+                    # (иначе получим данные ВСЕГО ЖК в строке одного корпуса)
+                    if b.domrf_apt_count:
+                        if not b.rooms_count:
+                            b.rooms_count = dict(ca.rooms_count)
+                        if not b.avg_area:
+                            b.avg_area = dict(ca.avg_area)
+                        if not b.avg_non_living:
+                            b.avg_non_living = dict(ca.avg_non_living)
+                    elif ca.apt_count:
                         logger.warning(
                             "  ⚠ %s / %s — per-building данные не найдены, "
                             "complex-level apt_count=%d НЕ присвоен (несколько корпусов)",
@@ -1025,9 +1032,16 @@ def _aggregate(
         if b.dev_storehouses:
             b.dev_store_count = len(b.dev_storehouses)
 
-    # domrf_store_count — уже задан в Шаге 3 и Шаге 4b из реальных данных.
-    # Не применяем complex-level fallback для domrf_store_count,
-    # чтобы не показывать одинаковое число кладовок на все корпуса.
+    # domrf_store_count — complex-level fallback для корпусов без per-building данных
+    complex_domrf_store_count: dict[tuple, int] = {}
+    for ck_key, ca in complex_agg.items():
+        if ca.store_count:
+            complex_domrf_store_count[ck_key] = ca.store_count
+    for b in buildings.values():
+        if not b.domrf_store_count:
+            ck = _complex_key(b.city, b.complex_name)
+            if ck in complex_domrf_store_count:
+                b.domrf_store_count = complex_domrf_store_count[ck]
 
     # Нормализация имён застройщиков
     for b in buildings.values():
@@ -1427,13 +1441,6 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
         if not storehouses:
             continue
 
-        store_total = bd.dev_store_count or bd.domrf_store_count
-        # Количество квартир: domrf_apt_count, или sum(rooms_count) как fallback
-        apt_total = bd.domrf_apt_count
-        if not apt_total and bd.rooms_count:
-            apt_total = sum(bd.rooms_count.values())
-        apt_store_ratio = round(apt_total / store_total, 1) if store_total and apt_total else None
-
         # Соотношение цен: ср. цена м² квартиры (застр.) / ср. цена м² кладовки
         store_ppms = [s["price_per_meter"] for s in storehouses if s.get("price_per_meter")]
         avg_store_ppm = sum(store_ppms) / len(store_ppms) if store_ppms else 0
@@ -1441,6 +1448,8 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
             round(bd.dev_avg_apt_ppm / avg_store_ppm, 1)
             if avg_store_ppm and bd.dev_avg_apt_ppm else None
         )
+
+        jk_row = bd._jk_row if hasattr(bd, '_jk_row') else None
 
         for store in storehouses:
             has_price = bool(store.get("price"))
@@ -1450,13 +1459,14 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
             _write_cell(ws, row, 3, bd.complex_name)
             _write_cell(ws, row, 4, bd.building)
             _write_cell(ws, row, 5, bd.days_until)
-            _write_cell(ws, row, 6, apt_store_ratio)
+            # Соотнош. квартир/кладовых — ссылка на формулу с листа жк
+            if jk_row:
+                _write_cell(ws, row, 6, f'=жк!M{jk_row}')
+            else:
+                _write_cell(ws, row, 6, None)
             _write_cell(ws, row, 7, price_ratio)
 
             # 8: Соотнош. квартир к балконам — формула из листа жк
-            # =IFERROR(жк!O{row_jk} / жк!I{row_jk}, "")
-            # Находим строку корпуса на листе жк по порядку buildings
-            jk_row = bd._jk_row if hasattr(bd, '_jk_row') else None
             if jk_row:
                 formula = f'=IFERROR(жк!O{jk_row}/жк!I{jk_row},"")'
                 _write_cell(ws, row, 8, formula)
@@ -1624,12 +1634,12 @@ def _fill_jk_sheet(
         m = manual.get(key, {})
         ck = _complex_key(bd.city, bd.complex_name)
 
-        store_total = bd.dev_store_count or bd.domrf_store_count
         # Количество квартир: domrf_apt_count, или sum(rooms_count) как fallback
         apt_total = bd.domrf_apt_count
         if not apt_total and bd.rooms_count:
             apt_total = sum(bd.rooms_count.values())
-        apt_store_ratio = round(apt_total / store_total, 1) if store_total and apt_total else None
+        # Соотношение квартир/кладовых — динамическая формула =O/P
+        apt_store_ratio = f'=IF(OR(O{row}=0,P{row}=0),"",ROUND(O{row}/P{row},1))'
 
         # Ссылка застройщика из yaml (base_url по имени застройщика)
         dev_url = dev_urls.get(bd.developer)

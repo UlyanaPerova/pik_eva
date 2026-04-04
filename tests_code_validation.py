@@ -1,21 +1,16 @@
 """
-Тесты v28 — покрытие рефакторинга pik_eva.
+Валидация кода pik_eva — проверка что все модули работают корректно.
 
-Модули:
-  1. parsers/models.py — StorehouseItem, ApartmentItem, rooms_label
-  2. parsers/db.py — init_db, backup_db, get_price_history, get_all_known_ids
-  3. parsers/config.py — load_config, validate_config
-  4. parsers/building.py — normalize_building, building_display, building_key
-  5. parsers/migrations.py — apply_migrations, get_version, record_parse_run
-  6. runners/run_result.py — RunResult
-  7. exporter_common.py — natural_sort_key, append_comment, стили
-  8. scoring.py — generate_first_stage_formula, generate_second_stage_formula, calc_*
-  9. config_manager.py — get_status, get_last_run_info, get_scoring_config
-  10. eva_calculator.py — _norm, BuildingAgg
+НЕ валидация данных (для этого есть validate_data.py).
+Проверяет: модели, БД-функции, конфиги, нормализацию building,
+миграции, скоринг-формулы, обратную совместимость импортов,
+чеклист из CLAUDE_CODE_PROMPT.md.
+
+72 теста, ~0.4 секунды.
 
 Запуск:
-    python test_eva_v28.py
-    python -m unittest test_eva_v28 -v
+    python tests_code_validation.py
+    python -m unittest tests_code_validation -v
 """
 from __future__ import annotations
 

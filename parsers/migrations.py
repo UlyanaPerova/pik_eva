@@ -82,6 +82,7 @@ def apply_migrations(
 
 STOREHOUSES_MIGRATIONS = [
     (1, "Добавить столбец developer", "ALTER TABLE prices ADD COLUMN developer TEXT"),
+    (2, "Добавить столбец object_id", "ALTER TABLE prices ADD COLUMN object_id INTEGER"),
 ]
 
 
@@ -90,6 +91,7 @@ STOREHOUSES_MIGRATIONS = [
 APARTMENTS_MIGRATIONS = [
     (1, "Добавить столбец living_area", "ALTER TABLE apartment_prices ADD COLUMN living_area REAL"),
     (2, "Добавить столбец developer", "ALTER TABLE apartment_prices ADD COLUMN developer TEXT"),
+    (3, "Добавить столбец object_id", "ALTER TABLE apartment_prices ADD COLUMN object_id INTEGER"),
 ]
 
 

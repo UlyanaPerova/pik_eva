@@ -123,13 +123,13 @@ def save_items(conn: sqlite3.Connection, items: list[StorehouseItem]) -> int:
             """INSERT INTO prices
                (site, city, complex_name, building, item_id, item_number,
                 area, price, price_per_meter, original_price, discount_percent,
-                url, developer, parsed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                url, developer, object_id, parsed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (item.site, item.city, item.complex_name, item.building,
              item.item_id, item.item_number,
              item.area, item.price, item.price_per_meter,
              item.original_price, item.discount_percent,
-             item.url, item.developer, now),
+             item.url, item.developer, item.object_id, now),
         )
         updated += 1
     conn.commit()

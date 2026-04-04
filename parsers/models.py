@@ -28,6 +28,7 @@ class StorehouseItem:
     original_price: Optional[float] = None # цена без скидки (если есть)
     discount_percent: Optional[float] = None  # % скидки (если есть)
     developer: Optional[str] = None        # застройщик (для domrf — из конфига)
+    object_id: Optional[int] = None        # ID объекта ДОМ.РФ (для привязки building)
 
 
 # ─── Квартиры ───────────────────────────────────────────
@@ -65,7 +66,8 @@ class ApartmentItem:
     original_price: Optional[float] = None # цена без скидки (если есть)
     discount_percent: Optional[float] = None  # % скидки (если есть)
     developer: Optional[str] = None        # застройщик (если задан в конфиге)
-    living_area: Optional[float] = None    # жилая площа��ь (м²)
+    living_area: Optional[float] = None    # жилая площадь (м²)
+    object_id: Optional[int] = None        # ID объекта ДОМ.РФ (для привязки building)
 
     @property
     def rooms_label(self) -> str:

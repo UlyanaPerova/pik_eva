@@ -134,14 +134,15 @@ def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
                (site, city, complex_name, building, item_id, rooms, floor,
                 apartment_number, area, price, price_per_meter,
                 original_price, discount_percent, url, living_area,
-                parsed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                object_id, parsed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (item.site, item.city, item.complex_name, item.building,
              item.item_id, item.rooms, item.floor,
              item.apartment_number,
              item.area, item.price, item.price_per_meter,
              item.original_price, item.discount_percent,
-             item.url, item.living_area, now),
+             item.url, item.living_area,
+             item.object_id, now),
         )
         updated += 1
     conn.commit()

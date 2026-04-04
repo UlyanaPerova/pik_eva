@@ -43,6 +43,7 @@ class DomRfParser(BaseParser):
     async def _parse_all_cdp(self) -> list[StorehouseItem]:
         """Парсинг через CDP (настоящий Chrome) с обработкой капчи и resume."""
         from parsers.cdp_browser import CdpBrowser
+        from parsers.base import init_db, save_items
 
         items: list[StorehouseItem] = []
         api_cfg = self.config.get("api", {})
@@ -64,9 +65,13 @@ class DomRfParser(BaseParser):
         await cdp.connect()
         page = cdp.page
 
+        # Инкрементальное сохранение — открываем БД сразу
+        conn = init_db()
+
         try:
             for link_info in links:
                 object_id = link_info["object_id"]
+                building_from_config = link_info.get("building", "")
                 complex_name = link_info["complex_name"]
                 developer = link_info.get("developer", "")
                 city = link_info.get("city", "Казань")
@@ -86,8 +91,14 @@ class DomRfParser(BaseParser):
                     page, base_url, api_cfg, object_id,
                     complex_name, developer, city, page_size,
                     always_types, by_area_types, max_area,
+                    building_from_config=building_from_config,
                 )
                 items.extend(object_items)
+
+                # Инкрементальное сохранение после каждого объекта
+                if object_items:
+                    save_items(conn, object_items)
+                    self.log.info("  💾 Сохранено %d кладовок в БД", len(object_items))
 
                 cdp.mark_completed(object_id)
                 await asyncio.sleep(1)
@@ -95,14 +106,16 @@ class DomRfParser(BaseParser):
             cdp.clear_checkpoint()
 
         finally:
+            conn.close()
             await cdp.close()
 
         self.log.info("Итого %s: %d кладовок", self.site_name, len(items))
         return items
 
     async def _parse_all_headless(self) -> list[StorehouseItem]:
-        """Парсинг через headless Playwright (оригинальная логика)."""
+        """Парсинг через headless Playwright с инкрементальным сохранением в БД."""
         from playwright.async_api import async_playwright
+        from parsers.base import init_db, save_items
 
         items: list[StorehouseItem] = []
         api_cfg = self.config.get("api", {})
@@ -114,6 +127,11 @@ class DomRfParser(BaseParser):
         by_area_cfg = target.get("by_area", {})
         by_area_types = set(by_area_cfg.get("types", []))
         max_area = by_area_cfg.get("max_area", 15)
+
+        # Инкрементальное сохранение — открываем БД сразу
+        conn = init_db()
+        errors = 0
+        max_consecutive_errors = 3
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -136,26 +154,54 @@ class DomRfParser(BaseParser):
 
             for link_info in self.config.get("links", []):
                 object_id = link_info["object_id"]
+                building_from_config = link_info.get("building", "")
                 complex_name = link_info["complex_name"]
                 developer = link_info.get("developer", "")
                 city = link_info.get("city", "Казань")
 
-                # Открываем страницу объекта — проходим anti-bot + WAF
-                obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
-                self.log.info("Загрузка страницы %s ...", obj_url)
-                await page.goto(obj_url, timeout=60000, wait_until="domcontentloaded")
-                await page.wait_for_timeout(8000)
+                try:
+                    # Открываем страницу объекта — проходим anti-bot + WAF
+                    obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{object_id}"
+                    self.log.info("Загрузка страницы %s ...", obj_url)
+                    await page.goto(obj_url, timeout=60000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(8000)
 
-                object_items = await self._parse_object(
-                    page, base_url, api_cfg, object_id,
-                    complex_name, developer, city, page_size,
-                    always_types, by_area_types, max_area,
-                )
-                items.extend(object_items)
-                await asyncio.sleep(1)
+                    object_items = await self._parse_object(
+                        page, base_url, api_cfg, object_id,
+                        complex_name, developer, city, page_size,
+                        always_types, by_area_types, max_area,
+                        building_from_config=building_from_config,
+                    )
+                    items.extend(object_items)
+
+                    # Инкрементальное сохранение после каждого объекта
+                    if object_items:
+                        save_items(conn, object_items)
+                        self.log.info("  💾 Сохранено %d кладовок в БД", len(object_items))
+
+                    errors = 0  # сброс счётчика ошибок после успеха
+                    await asyncio.sleep(2)
+
+                except Exception as e:
+                    errors += 1
+                    self.log.error(
+                        "  ❌ Ошибка объекта %d (%s): %s", object_id, complex_name, e
+                    )
+                    if errors >= max_consecutive_errors:
+                        self.log.error(
+                            "  ⛔ %d подряд ошибок — останавливаем парсинг", errors
+                        )
+                        break
+                    # Переоткрываем страницу при ошибке (может помочь с anti-bot)
+                    try:
+                        await page.goto("about:blank", timeout=10000)
+                        await asyncio.sleep(5)
+                    except Exception:
+                        pass
 
             await browser.close()
 
+        conn.close()
         self.log.info("Итого %s: %d кладовок", self.site_name, len(items))
         return items
 
@@ -172,6 +218,7 @@ class DomRfParser(BaseParser):
         always_types: set[str],
         by_area_types: set[str],
         max_area: float,
+        building_from_config: str = "",
     ) -> list[StorehouseItem]:
         """Загрузить все нежилые помещения одного объекта через fetch из браузера."""
         flats_ep = api_cfg.get(
@@ -239,6 +286,7 @@ class DomRfParser(BaseParser):
 
             item = self._parse_premise(
                 premise, object_id, complex_name, developer, city, base_url,
+                building_from_config=building_from_config,
             )
             if item:
                 items.append(item)
@@ -265,6 +313,7 @@ class DomRfParser(BaseParser):
         developer: str,
         city: str,
         base_url: str,
+        building_from_config: str = "",
     ) -> StorehouseItem | None:
         """Преобразовать одно помещение из API в StorehouseItem."""
         try:
@@ -277,16 +326,25 @@ class DomRfParser(BaseParser):
             price = 0
             price_per_meter = 0
 
-            # Корпус и номер из odsId: "61962/8/Н12" → building="8", number="Н12"
-            building = ""
+            # Корпус: берём из конфига если задан, иначе из odsId
+            # (в odsId второй сегмент — внутренний код категории ДОМ.РФ, не номер корпуса)
             item_number = ""
             if ods_id:
                 parts = ods_id.split("/")
                 if len(parts) >= 3:
-                    building = parts[1]
                     item_number = parts[2]
                 elif len(parts) == 2:
-                    building = parts[1]
+                    item_number = parts[1]
+
+            if building_from_config:
+                building = building_from_config
+            else:
+                # Fallback: используем второй сегмент odsId (старое поведение)
+                building = ""
+                if ods_id:
+                    parts = ods_id.split("/")
+                    if len(parts) >= 2:
+                        building = parts[1]
 
             # Подъезд → в примечание к корпусу через ||
             if entrance:
@@ -310,6 +368,7 @@ class DomRfParser(BaseParser):
                 url=url,
                 item_number=item_number,
                 developer=developer,
+                object_id=object_id,
             )
         except (ValueError, KeyError, TypeError) as e:
             self.log.warning("Ошибка парсинга помещения: %s — %s", e, premise)

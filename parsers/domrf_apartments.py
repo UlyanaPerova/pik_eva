@@ -491,6 +491,7 @@ class DomRfApartmentParser(BaseApartmentParser):
                 url=url,
                 apartment_number=apartment_number,
                 developer=developer,
+                object_id=object_id,
             )
         except (ValueError, KeyError, TypeError) as e:
             self.log.warning("Ошибка парсинга квартиры: %s — %s", e, flat)

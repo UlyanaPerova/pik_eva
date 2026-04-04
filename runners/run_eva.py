@@ -70,16 +70,14 @@ def main() -> int:
     logger.info("Генерация расчёта ЕВА")
     logger.info("=" * 50)
 
-    # Миграция: добавить living_area, если нет
+    # Миграции: применить все накопленные миграции к обеим БД
+    from parsers.migrations import apply_migrations, APARTMENTS_MIGRATIONS, STOREHOUSES_MIGRATIONS
+
     conn_apt = sqlite3.connect(str(APT_DB))
-    try:
-        conn_apt.execute("ALTER TABLE apartment_prices ADD COLUMN living_area REAL")
-        conn_apt.commit()
-        logger.info("Добавлен столбец living_area в apartment_prices")
-    except sqlite3.OperationalError:
-        pass
+    apply_migrations(conn_apt, APARTMENTS_MIGRATIONS, log=logger)
 
     conn_store = sqlite3.connect(str(STORE_DB))
+    apply_migrations(conn_store, STOREHOUSES_MIGRATIONS, log=logger)
 
     output_path = Path(args.output) if args.output else None
 
