@@ -1032,7 +1032,8 @@ def _aggregate(
         if b.dev_storehouses:
             b.dev_store_count = len(b.dev_storehouses)
 
-    # domrf_store_count — complex-level fallback для корпусов без per-building данных
+    # domrf_store_count — complex-level fallback ТОЛЬКО для ЖК с одним корпусом.
+    # Для multi-building ЖК присвоение всех кладовок одному корпусу — ошибка.
     complex_domrf_store_count: dict[tuple, int] = {}
     for ck_key, ca in complex_agg.items():
         if ca.store_count:
@@ -1041,7 +1042,12 @@ def _aggregate(
         if not b.domrf_store_count:
             ck = _complex_key(b.city, b.complex_name)
             if ck in complex_domrf_store_count:
-                b.domrf_store_count = complex_domrf_store_count[ck]
+                num_buildings = sum(
+                    1 for ob in buildings.values()
+                    if _complex_key(ob.city, ob.complex_name) == ck
+                )
+                if num_buildings == 1:
+                    b.domrf_store_count = complex_domrf_store_count[ck]
 
     # Нормализация имён застройщиков
     for b in buildings.values():
