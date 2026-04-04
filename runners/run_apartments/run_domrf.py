@@ -2,13 +2,18 @@
 """
 Запуск парсера квартир ДОМ.РФ + экспорт в xlsx.
 
-Использование:
-    python runners/apartments/run_domrf.py
+Особенности (не укладывается в стандартный run_apartment_parser):
+  - parse_all() возвращает tuple (items, object_infos)
+  - smart_merge для сохранения пользовательских правок
+  - дополнительный лист «Информация о домах»
+  - copy_user_sheets для кастомных листов пользователя
 """
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -16,20 +21,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from parsers.apartments_base import (
     init_db, save_items, backup_db, validate_items,
     get_all_known_ids, calc_avg_prices, rooms_label, logger,
+    OUTPUT_DIR,
 )
 from parsers.domrf_apartments import DomRfApartmentParser, ObjectInfo
 from exporter_apartments import export_apartments_xlsx
+from kvartirografia import add_kvartirografia_sheets
+from smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
+from runners.run_result import RunResult
 
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-from collections import defaultdict, Counter as _Counter
-from kvartirografia import add_kvartirografia_sheets
-from smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
-from parsers.apartments_base import OUTPUT_DIR
-import re
 
+
+# ── Утилиты для листа «Информация о домах» ─────────────
 
 _QUARTER_END_DATES = {
     "I": "31 марта",
@@ -54,8 +60,6 @@ def _quarter_comment(text: str) -> str | None:
     if not end_date:
         return None
     return f"{end_date} {year} года"
-
-
 
 
 def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
@@ -88,7 +92,6 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin_border
 
-    # Сортировка: по застройщику, потом ЖК, потом object_id
     sorted_infos = sorted(object_infos, key=lambda o: (
         o.developer.lower(), o.complex_name.lower(), o.object_id,
     ))
@@ -98,7 +101,6 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
     for i, info in enumerate(sorted_infos):
         row = i + 2
 
-        # Очистка значений-дефисов (на сайте "-" означает "нет данных")
         def clean(val):
             if isinstance(val, str) and val.strip() in ("-", "–", "—"):
                 return ""
@@ -121,13 +123,11 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
             cell.alignment = data_align
             cell.border = thin_border
 
-        # Первый столбец — ссылка на объект
         obj_cell = ws.cell(row=row, column=1)
         obj_url = f"{base_url}/сервисы/каталог-новостроек/объект/{info.object_id}"
         obj_cell.hyperlink = obj_url
         obj_cell.font = link_font
 
-        # Примечание с расшифровкой квартала (только для ввода в эксплуатацию)
         hint = _quarter_comment(info.commissioning)
         if hint:
             c = ws.cell(row=row, column=4)
@@ -135,7 +135,6 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
             c.comment.width = 200
             c.comment.height = 30
 
-    # Ширина колонок
     widths = [12, 25, 18, 20, 18, 22, 16, 14, 14]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
@@ -145,6 +144,8 @@ def _add_object_info_sheet(wb, object_infos: list[ObjectInfo]) -> None:
     if last_row > 1:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{last_row}"
 
+
+# ── CLI ─────────────────────────────────────────────────
 
 def _parse_args():
     import argparse
@@ -161,6 +162,9 @@ async def main() -> int:
     logger.info("Запуск парсера квартир ДОМ.РФ")
     logger.info("=" * 50)
 
+    t0 = time.monotonic()
+    result = RunResult(success=False, site="domrf")
+
     backup_db()
     conn = init_db()
 
@@ -169,16 +173,21 @@ async def main() -> int:
         items, object_infos = await parser.parse_all()
 
         if not items:
+            result.errors.append("Парсер не вернул ни одной квартиры")
             logger.error("Парсер не вернул ни одной квартиры!")
-            return 1
+            return result.exit_code
+
+        result.items_count = len(items)
 
         warnings = validate_items(items)
+        result.warnings = warnings
         if warnings:
             logger.warning("Обнаружено %d предупреждений валидации", len(warnings))
 
         previously_known = get_all_known_ids(conn, "domrf")
 
         updated = save_items(conn, items)
+        result.items_saved = updated
         logger.info("Обновлено записей в БД: %d", updated)
 
         # Smart merge — определяем правки пользователя, новые/проданные
@@ -209,6 +218,7 @@ async def main() -> int:
         save_written_values(conn, "domrf", items)
         save_merge_statuses(conn, "domrf", merge_result.new_ids, merge_result.sold_ids)
 
+        result.output_path = str(output_path)
         logger.info("Файл готов: %s", output_path)
 
         # Статистика
@@ -227,13 +237,16 @@ async def main() -> int:
 
         logger.info("  Объектов с информацией о доме: %d", len(object_infos))
 
-        return 0
+        result.success = True
+        return result.exit_code
 
     except Exception as exc:
         logger.exception("Критическая ошибка: %s", exc)
-        return 1
+        result.errors.append(str(exc))
+        return result.exit_code
     finally:
         conn.close()
+        result.duration_sec = time.monotonic() - t0
 
 
 if __name__ == "__main__":

@@ -2,24 +2,36 @@
 Базовые классы и утилиты для парсеров квартир.
 
 Модель данных, работа с SQLite (история цен), логгинг, бэкап.
-Аналогично base.py для кладовок, но со спецификой квартир:
-  - rooms (количество комнат: 0=студия, 1, 2, 3, ...)
-  - floor (этаж)
-  - средние цены по типам квартир
+
+Этот модуль — тонкая обёртка: реальная логика в parsers/models.py,
+parsers/db.py и parsers/config.py. Все публичные имена сохранены
+для обратной совместимости.
 """
 from __future__ import annotations
 
 import json
 import logging
-import shutil
 import sqlite3
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import yaml
+# ─── Реэкспорт моделей ─────────────────────────────────
+from parsers.models import (  # noqa: F401
+    ApartmentItem,
+    ROOM_LABELS,
+    rooms_label,
+)
+from parsers.config import load_config, validate_config  # noqa: F401
+from parsers.db import (
+    init_db as _init_db,
+    backup_db as _backup_db,
+    get_price_history as _get_price_history,
+    get_first_seen_date as _get_first_seen_date,
+    get_all_known_ids as _get_all_known_ids,
+)
 
 # ─── Пути ───────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -57,86 +69,42 @@ logger.addHandler(_fh)
 logger.addHandler(_ch)
 
 
-# ─── Модель данных ───────────────────────────────────────
+# ─── SQLite (обёртки над parsers.db) ────────────────────
 
-ROOM_LABELS = {
-    0: "Студия",
-    1: "1-комн.",
-    2: "2-комн.",
-    3: "3-комн.",
-    4: "4-комн.",
-    5: "5-комн.",
-}
+_APARTMENTS_CREATE_SQL = """
+    CREATE TABLE IF NOT EXISTS apartment_prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site TEXT NOT NULL,
+        city TEXT NOT NULL DEFAULT '',
+        complex_name TEXT NOT NULL,
+        building TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        rooms INTEGER NOT NULL DEFAULT 0,
+        floor INTEGER NOT NULL DEFAULT 0,
+        apartment_number TEXT,
+        area REAL,
+        price REAL,
+        price_per_meter REAL,
+        original_price REAL,
+        discount_percent REAL,
+        url TEXT,
+        parsed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+"""
 
-
-def rooms_label(rooms: int) -> str:
-    """Человекочитаемое название типа квартиры."""
-    return ROOM_LABELS.get(rooms, f"{rooms}-комн.")
-
-
-@dataclass
-class ApartmentItem:
-    """Одна квартира."""
-    site: str                              # 'pik'
-    city: str                              # 'Казань'
-    complex_name: str                      # 'Сибирово'
-    building: str                          # 'Корпус 1'
-    item_id: str                           # уникальный ID квартиры
-    rooms: int                             # 0=студия, 1, 2, 3, ...
-    floor: int                             # этаж
-    area: float                            # м²
-    price: float                           # ₽ (со скидкой, если есть)
-    price_per_meter: float                 # ₽/м²
-    url: str                               # ссылка на квартиру
-    apartment_number: Optional[str] = None # номер квартиры (если есть)
-    original_price: Optional[float] = None # цена без скидки (если есть)
-    discount_percent: Optional[float] = None  # % скидки (если есть)
-    developer: Optional[str] = None        # застройщик (если задан в конфиге)
-    living_area: Optional[float] = None    # жилая площадь (м²)
-
-    @property
-    def rooms_label(self) -> str:
-        return ROOM_LABELS.get(self.rooms, f"{self.rooms}-комн.")
-
-
-# ─── SQLite ──────────────────────────────────────────────
+_APARTMENTS_INDEX_SQL = """
+    CREATE INDEX IF NOT EXISTS idx_apt_item
+    ON apartment_prices (site, item_id, parsed_at)
+"""
 
 def init_db() -> sqlite3.Connection:
     """Создать/открыть БД квартир и вернуть соединение."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS apartment_prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site TEXT NOT NULL,
-            city TEXT NOT NULL DEFAULT '',
-            complex_name TEXT NOT NULL,
-            building TEXT NOT NULL,
-            item_id TEXT NOT NULL,
-            rooms INTEGER NOT NULL DEFAULT 0,
-            floor INTEGER NOT NULL DEFAULT 0,
-            apartment_number TEXT,
-            area REAL,
-            price REAL,
-            price_per_meter REAL,
-            original_price REAL,
-            discount_percent REAL,
-            url TEXT,
-            parsed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_apt_item
-        ON apartment_prices (site, item_id, parsed_at)
-    """)
-    # Миграция: добавить living_area, если столбца ещё нет
-    try:
-        conn.execute("ALTER TABLE apartment_prices ADD COLUMN living_area REAL")
-    except sqlite3.OperationalError:
-        pass  # столбец уже существует
-    conn.commit()
-    logger.debug("БД квартир инициализирована: %s", DB_PATH)
-    return conn
+    from parsers.migrations import APARTMENTS_MIGRATIONS
+    return _init_db(
+        DB_PATH, "apartment_prices", _APARTMENTS_CREATE_SQL, _APARTMENTS_INDEX_SQL,
+        versioned_migrations=APARTMENTS_MIGRATIONS,
+        log=logger,
+    )
 
 
 def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
@@ -184,57 +152,23 @@ def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
 def get_price_history(
     conn: sqlite3.Connection, site: str, item_id: str
 ) -> list[tuple]:
-    """
-    Вернуть историю цен квартиры (от новых к старым):
-    [(price, price_per_meter, original_price, discount_percent, parsed_at), ...]
-    """
-    rows = conn.execute(
-        """SELECT price, price_per_meter, original_price, discount_percent, parsed_at
-           FROM apartment_prices
-           WHERE site = ? AND item_id = ?
-           ORDER BY parsed_at DESC""",
-        (site, item_id),
-    ).fetchall()
-    return rows
+    """История цен квартиры (от новых к старым)."""
+    return _get_price_history(conn, "apartment_prices", site, item_id)
 
 
 def get_first_seen_date(conn: sqlite3.Connection, site: str, item_id: str) -> str | None:
-    """Вернуть дату первого появления квартиры в БД."""
-    row = conn.execute(
-        """SELECT parsed_at FROM apartment_prices
-           WHERE site = ? AND item_id = ?
-           ORDER BY parsed_at ASC LIMIT 1""",
-        (site, item_id),
-    ).fetchone()
-    return row[0] if row else None
+    """Дата первого появления квартиры в БД."""
+    return _get_first_seen_date(conn, "apartment_prices", site, item_id)
 
 
 def get_all_known_ids(conn: sqlite3.Connection, site: str) -> set[str]:
-    """Все item_id, которые когда-либо были в БД для данного сайта."""
-    rows = conn.execute(
-        "SELECT DISTINCT item_id FROM apartment_prices WHERE site = ?", (site,)
-    ).fetchall()
-    return {r[0] for r in rows}
+    """Все item_id квартир, которые когда-либо были в БД."""
+    return _get_all_known_ids(conn, "apartment_prices", site)
 
-
-# ─── Бэкап ──────────────────────────────────────────────
 
 def backup_db() -> Optional[Path]:
-    """Создать бэкап БД перед парсингом."""
-    if not DB_PATH.exists():
-        return None
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"apartments_{stamp}.db"
-    shutil.copy2(DB_PATH, backup_path)
-    logger.info("Бэкап БД квартир: %s", backup_path)
-
-    backups = sorted(BACKUP_DIR.glob("apartments_*.db"), reverse=True)
-    for old in backups[10:]:
-        old.unlink()
-        logger.debug("Удалён старый бэкап: %s", old.name)
-
-    return backup_path
+    """Создать бэкап БД квартир перед парсингом."""
+    return _backup_db(DB_PATH, BACKUP_DIR, "apartments", log=logger)
 
 
 # ─── Baseline ────────────────────────────────────────────
@@ -275,7 +209,6 @@ def validate_items(items: list[ApartmentItem]) -> list[str]:
         warnings.append("Парсер вернул 0 квартир!")
         return warnings
 
-    # Сайты без цен (дом.рф) — пропускаем проверки цен
     sites_without_prices = {"domrf"}
 
     for item in items:
@@ -313,21 +246,16 @@ def calc_avg_prices(items: list[ApartmentItem]) -> dict:
     Возвращает:
     {
         "by_rooms": {
-            0: {"count": 10, "avg_price": 5_000_000, "avg_ppm": 120_000,
-                "min_price": 3_500_000, "max_price": 7_000_000},
-            1: {...},
+            0: {"count": 10, "avg_price": 5_000_000, "avg_ppm": 120_000, ...},
             ...
         },
         "by_complex_rooms": {
             ("Сибирово", 0): {...},
             ...
         },
-        "total": {"count": 100, "avg_price": 8_000_000, "avg_ppm": 110_000,
-                  "min_price": 3_000_000, "max_price": 20_000_000},
+        "total": {"count": 100, "avg_price": 8_000_000, ...},
     }
     """
-    from collections import defaultdict
-
     by_rooms: dict[int, list[ApartmentItem]] = defaultdict(list)
     by_complex_rooms: dict[tuple, list[ApartmentItem]] = defaultdict(list)
 
@@ -360,101 +288,12 @@ def calc_avg_prices(items: list[ApartmentItem]) -> dict:
     return result
 
 
-# ─── Конфиг ──────────────────────────────────────────────
-
-def load_config(config_path: str | Path) -> dict:
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def validate_config(config: dict, *, require_building: bool = True) -> None:
-    """
-    Проверить конфиг квартир на ошибки перед запуском парсинга.
-
-    - Каждая запись в links[] должна содержать object_id (int > 0) и complex_name (str).
-    - Если require_building=True, проверяется наличие поля building.
-    - Опциональные поля city/developer — предупреждение, если отсутствуют.
-    - Дубликаты по (object_id, building) — предупреждение.
-
-    Raises:
-        ValueError: если есть критические ошибки (отсутствуют обязательные поля).
-    """
-    links = config.get("links")
-    if links is None:
-        raise ValueError("Конфиг не содержит секцию 'links'")
-    if not isinstance(links, list):
-        raise ValueError("Секция 'links' должна быть списком")
-    if not links:
-        logger.warning("Конфиг: секция 'links' пуста — нечего парсить")
-        return
-
-    errors: list[str] = []
-    seen: set[tuple] = set()
-
-    for idx, entry in enumerate(links):
-        prefix = f"links[{idx}]"
-
-        if not isinstance(entry, dict):
-            errors.append(f"{prefix}: запись должна быть словарём, получено {type(entry).__name__}")
-            continue
-
-        # --- object_id (обязательное) ---
-        obj_id = entry.get("object_id")
-        if obj_id is None:
-            errors.append(f"{prefix}: отсутствует обязательное поле 'object_id'")
-        elif not isinstance(obj_id, int):
-            errors.append(f"{prefix}: 'object_id' должен быть целым числом, получено {type(obj_id).__name__}: {obj_id!r}")
-        elif obj_id <= 0:
-            errors.append(f"{prefix}: 'object_id' должен быть > 0, получено {obj_id}")
-
-        # --- complex_name (обязательное) ---
-        cname = entry.get("complex_name")
-        if cname is None:
-            errors.append(f"{prefix}: отсутствует обязательное поле 'complex_name'")
-        elif not isinstance(cname, str) or not cname.strip():
-            errors.append(f"{prefix}: 'complex_name' должен быть непустой строкой, получено {cname!r}")
-
-        # --- building (обязательное для квартир) ---
-        building = entry.get("building")
-        if require_building and building is None:
-            errors.append(f"{prefix} (object_id={obj_id}): отсутствует обязательное поле 'building'")
-
-        # --- опциональные поля: city, developer ---
-        if "city" not in entry:
-            logger.warning(
-                "Конфиг %s (object_id=%s): отсутствует поле 'city', будет использовано значение по умолчанию",
-                prefix, obj_id,
-            )
-        if "developer" not in entry:
-            logger.warning(
-                "Конфиг %s (object_id=%s): отсутствует поле 'developer'",
-                prefix, obj_id,
-            )
-
-        # --- дубликаты ---
-        dup_key = (obj_id, entry.get("building", ""))
-        if dup_key in seen:
-            logger.warning(
-                "Конфиг %s: дубликат записи (object_id=%s, building=%r)",
-                prefix, obj_id, entry.get("building", ""),
-            )
-        else:
-            seen.add(dup_key)
-
-    if errors:
-        msg = "Ошибки валидации конфига:\n" + "\n".join(f"  - {e}" for e in errors)
-        logger.error(msg)
-        raise ValueError(msg)
-
-    logger.info("Конфиг валиден: %d записей в links", len(links))
-
-
 # ─── Базовый парсер ──────────────────────────────────────
 
 class BaseApartmentParser(ABC):
     def __init__(self, config_path: str | Path):
         self.config = load_config(config_path)
-        validate_config(self.config, require_building=True)
+        validate_config(self.config, require_building=True, log=logger)
         self.site_name: str = self.config["name"]
         self.site_key: str = self.config.get("key", self.site_name.lower())
         self.log = logging.getLogger(f"apartments.{self.site_key}")

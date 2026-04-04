@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Запуск парсера квартир СМУ-88 + экспорт в xlsx.
-
-Использование:
-    python runners/apartments/run_smu88.py
-"""
+"""Запуск парсера квартир СМУ-88 + экспорт в xlsx."""
 from __future__ import annotations
 
 import asyncio
@@ -13,63 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from parsers.apartments_base import (
-    init_db, save_items, backup_db, validate_items,
-    get_all_known_ids, calc_avg_prices, rooms_label, logger,
-)
 from parsers.smu88_apartments import Smu88ApartmentParser
-from exporter_apartments import export_apartments_xlsx
-from kvartirografia import add_kvartirografia_sheets
-from openpyxl import load_workbook
+from runners.runner_utils import run_apartment_parser
 
 
-async def main() -> int:
-    logger.info("=" * 50)
-    logger.info("Запуск парсера квартир СМУ-88")
-    logger.info("=" * 50)
-
-    backup_db()
-    conn = init_db()
-
-    try:
-        parser = Smu88ApartmentParser()
-        items = await parser.parse_all()
-
-        if not items:
-            logger.error("Парсер не вернул ни одной квартиры!")
-            return 1
-
-        warnings = validate_items(items)
-        if warnings:
-            logger.warning("Обнаружено %d предупреждений валидации", len(warnings))
-
-        previously_known = get_all_known_ids(conn, "smu88")
-
-        updated = save_items(conn, items)
-        logger.info("Обновлено записей в БД: %d", updated)
-
-        output_path = export_apartments_xlsx(items, conn, previously_known=previously_known)
-
-        wb = load_workbook(str(output_path))
-        add_kvartirografia_sheets(wb, items)
-        wb.save(str(output_path))
-
-        logger.info("Файл готов: %s", output_path)
-
-        stats = calc_avg_prices(items)
-        logger.info("Статистика:")
-        logger.info("  Всего квартир: %d", len(items))
-        for r, data in stats["by_rooms"].items():
-            logger.info("    %s: %d шт., ср. цена: %s ₽",
-                        rooms_label(r), data["count"], f"{data['avg_price']:,.0f}")
-
-        return 0
-
-    except Exception as exc:
-        logger.exception("Критическая ошибка: %s", exc)
-        return 1
-    finally:
-        conn.close()
+async def main():
+    parser = Smu88ApartmentParser()
+    result = await run_apartment_parser(parser, "smu88", "СМУ-88")
+    return result.exit_code
 
 
 if __name__ == "__main__":

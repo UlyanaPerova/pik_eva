@@ -2,19 +2,30 @@
 Базовые классы и утилиты для парсеров кладовок.
 
 Модель данных, работа с SQLite (история цен), логгинг, бэкап.
+
+Этот модуль — тонкая обёртка: реальная логика в parsers/models.py,
+parsers/db.py и parsers/config.py. Все публичные имена сохранены
+для обратной совместимости.
 """
 from __future__ import annotations
 
 import logging
-import shutil
 import sqlite3
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import yaml
+# ─── Реэкспорт моделей ─────────────────────────────────
+from parsers.models import StorehouseItem  # noqa: F401
+from parsers.config import load_config, validate_config  # noqa: F401
+from parsers.db import (
+    init_db as _init_db,
+    backup_db as _backup_db,
+    get_price_history as _get_price_history,
+    get_first_seen_date as _get_first_seen_date,
+    get_all_known_ids as _get_all_known_ids,
+)
 
 # ─── Пути ───────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -52,57 +63,40 @@ logger.addHandler(_fh)
 logger.addHandler(_ch)
 
 
-# ─── Модель данных ───────────────────────────────────────
+# ─── SQLite (обёртки над parsers.db) ────────────────────
 
-@dataclass
-class StorehouseItem:
-    """Одна кладовка."""
-    site: str                              # 'pik'
-    city: str                              # 'Казань'
-    complex_name: str                      # 'Сибирово'
-    building: str                          # 'Корпус 1'
-    item_id: str                           # уникальный ID кладовки
-    area: float                            # м²
-    price: float                           # ₽ (со скидкой, если есть)
-    price_per_meter: float                 # ₽/м²
-    url: str                               # ссылка на кладовку
-    item_number: Optional[str] = None      # номер кладовой (если есть)
-    original_price: Optional[float] = None # цена без скидки (если есть)
-    discount_percent: Optional[float] = None  # % скидки (если есть)
-    developer: Optional[str] = None        # застройщик (для domrf — из конфига)
+_STOREHOUSES_CREATE_SQL = """
+    CREATE TABLE IF NOT EXISTS prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site TEXT NOT NULL,
+        city TEXT NOT NULL DEFAULT '',
+        complex_name TEXT NOT NULL,
+        building TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        item_number TEXT,
+        area REAL,
+        price REAL,
+        price_per_meter REAL,
+        original_price REAL,
+        discount_percent REAL,
+        url TEXT,
+        parsed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+"""
 
-
-# ─── SQLite ──────────────────────────────────────────────
+_STOREHOUSES_INDEX_SQL = """
+    CREATE INDEX IF NOT EXISTS idx_item
+    ON prices (site, item_id, parsed_at)
+"""
 
 def init_db() -> sqlite3.Connection:
-    """Создать/открыть БД и вернуть соединение."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site TEXT NOT NULL,
-            city TEXT NOT NULL DEFAULT '',
-            complex_name TEXT NOT NULL,
-            building TEXT NOT NULL,
-            item_id TEXT NOT NULL,
-            item_number TEXT,
-            area REAL,
-            price REAL,
-            price_per_meter REAL,
-            original_price REAL,
-            discount_percent REAL,
-            url TEXT,
-            parsed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_item
-        ON prices (site, item_id, parsed_at)
-    """)
-    conn.commit()
-    logger.debug("БД инициализирована: %s", DB_PATH)
-    return conn
+    """Создать/открыть БД кладовок и вернуть соединение."""
+    from parsers.migrations import STOREHOUSES_MIGRATIONS
+    return _init_db(
+        DB_PATH, "prices", _STOREHOUSES_CREATE_SQL, _STOREHOUSES_INDEX_SQL,
+        versioned_migrations=STOREHOUSES_MIGRATIONS,
+        log=logger,
+    )
 
 
 def save_items(conn: sqlite3.Connection, items: list[StorehouseItem]) -> int:
@@ -128,13 +122,14 @@ def save_items(conn: sqlite3.Connection, items: list[StorehouseItem]) -> int:
         conn.execute(
             """INSERT INTO prices
                (site, city, complex_name, building, item_id, item_number,
-                area, price, price_per_meter, original_price, discount_percent, url, parsed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                area, price, price_per_meter, original_price, discount_percent,
+                url, developer, parsed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (item.site, item.city, item.complex_name, item.building,
              item.item_id, item.item_number,
              item.area, item.price, item.price_per_meter,
              item.original_price, item.discount_percent,
-             item.url, now),
+             item.url, item.developer, now),
         )
         updated += 1
     conn.commit()
@@ -145,37 +140,18 @@ def save_items(conn: sqlite3.Connection, items: list[StorehouseItem]) -> int:
 def get_price_history(
     conn: sqlite3.Connection, site: str, item_id: str
 ) -> list[tuple]:
-    """
-    Вернуть историю цен (от новых к старым):
-    [(price, price_per_meter, original_price, discount_percent, parsed_at), ...]
-    """
-    rows = conn.execute(
-        """SELECT price, price_per_meter, original_price, discount_percent, parsed_at
-           FROM prices
-           WHERE site = ? AND item_id = ?
-           ORDER BY parsed_at DESC""",
-        (site, item_id),
-    ).fetchall()
-    return rows
+    """История цен кладовки (от новых к старым)."""
+    return _get_price_history(conn, "prices", site, item_id)
 
 
 def get_first_seen_date(conn: sqlite3.Connection, site: str, item_id: str) -> str | None:
-    """Вернуть дату первого появления кладовки в БД."""
-    row = conn.execute(
-        """SELECT parsed_at FROM prices
-           WHERE site = ? AND item_id = ?
-           ORDER BY parsed_at ASC LIMIT 1""",
-        (site, item_id),
-    ).fetchone()
-    return row[0] if row else None
+    """Дата первого появления кладовки в БД."""
+    return _get_first_seen_date(conn, "prices", site, item_id)
 
 
 def get_all_known_ids(conn: sqlite3.Connection, site: str) -> set[str]:
-    """Все item_id, которые когда-либо были в БД для данного сайта."""
-    rows = conn.execute(
-        "SELECT DISTINCT item_id FROM prices WHERE site = ?", (site,)
-    ).fetchall()
-    return {r[0] for r in rows}
+    """Все item_id кладовок, которые когда-либо были в БД."""
+    return _get_all_known_ids(conn, "prices", site)
 
 
 def get_latest_items(conn: sqlite3.Connection, site: str) -> list[dict]:
@@ -200,25 +176,9 @@ def get_latest_items(conn: sqlite3.Connection, site: str) -> list[dict]:
     return [dict(zip(columns, row)) for row in rows]
 
 
-# ─── Бэкап ──────────────────────────────────────────────
-
 def backup_db() -> Optional[Path]:
-    """Создать бэкап БД перед парсингом. Возвращает путь к бэкапу."""
-    if not DB_PATH.exists():
-        return None
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"history_{stamp}.db"
-    shutil.copy2(DB_PATH, backup_path)
-    logger.info("Бэкап БД: %s", backup_path)
-
-    # Удаляем старые бэкапы (оставляем 10 последних)
-    backups = sorted(BACKUP_DIR.glob("history_*.db"), reverse=True)
-    for old in backups[10:]:
-        old.unlink()
-        logger.debug("Удалён старый бэкап: %s", old.name)
-
-    return backup_path
+    """Создать бэкап БД кладовок перед парсингом."""
+    return _backup_db(DB_PATH, BACKUP_DIR, "history", log=logger)
 
 
 # ─── Валидация ───────────────────────────────────────────
@@ -233,7 +193,6 @@ def validate_items(items: list[StorehouseItem]) -> list[str]:
         warnings.append("⚠ Парсер вернул 0 кладовок!")
         return warnings
 
-    # Сайты без цен (дом.рф) — пропускаем проверки цен
     sites_without_prices = {"domrf"}
 
     for i, item in enumerate(items):
@@ -260,101 +219,12 @@ def validate_items(items: list[StorehouseItem]) -> list[str]:
     return warnings
 
 
-# ─── Конфиг ──────────────────────────────────────────────
-
-def load_config(config_path: str | Path) -> dict:
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def validate_config(config: dict, *, require_building: bool = False) -> None:
-    """
-    Проверить конфиг на ошибки перед запуском парсинга.
-
-    - Каждая запись в links[] должна содержать object_id (int > 0) и complex_name (str).
-    - Если require_building=True (конфиг квартир), проверяется наличие поля building.
-    - Опциональные поля city/developer — предупреждение, если отсутствуют.
-    - Дубликаты по (object_id, building) — предупреждение.
-
-    Raises:
-        ValueError: если есть критические ошибки (отсутствуют обязательные поля).
-    """
-    links = config.get("links")
-    if links is None:
-        raise ValueError("Конфиг не содержит секцию 'links'")
-    if not isinstance(links, list):
-        raise ValueError("Секция 'links' должна быть списком")
-    if not links:
-        logger.warning("Конфиг: секция 'links' пуста — нечего парсить")
-        return
-
-    errors: list[str] = []
-    seen: set[tuple] = set()
-
-    for idx, entry in enumerate(links):
-        prefix = f"links[{idx}]"
-
-        if not isinstance(entry, dict):
-            errors.append(f"{prefix}: запись должна быть словарём, получено {type(entry).__name__}")
-            continue
-
-        # --- object_id (обязательное) ---
-        obj_id = entry.get("object_id")
-        if obj_id is None:
-            errors.append(f"{prefix}: отсутствует обязательное поле 'object_id'")
-        elif not isinstance(obj_id, int):
-            errors.append(f"{prefix}: 'object_id' должен быть целым числом, получено {type(obj_id).__name__}: {obj_id!r}")
-        elif obj_id <= 0:
-            errors.append(f"{prefix}: 'object_id' должен быть > 0, получено {obj_id}")
-
-        # --- complex_name (обязательное) ---
-        cname = entry.get("complex_name")
-        if cname is None:
-            errors.append(f"{prefix}: отсутствует обязательное поле 'complex_name'")
-        elif not isinstance(cname, str) or not cname.strip():
-            errors.append(f"{prefix}: 'complex_name' должен быть непустой строкой, получено {cname!r}")
-
-        # --- building (обязательное для квартир) ---
-        building = entry.get("building")
-        if require_building and building is None:
-            errors.append(f"{prefix} (object_id={obj_id}): отсутствует обязательное поле 'building'")
-
-        # --- опциональные поля: city, developer ---
-        if "city" not in entry:
-            logger.warning(
-                "Конфиг %s (object_id=%s): отсутствует поле 'city', будет использовано значение по умолчанию",
-                prefix, obj_id,
-            )
-        if "developer" not in entry:
-            logger.warning(
-                "Конфиг %s (object_id=%s): отсутствует поле 'developer'",
-                prefix, obj_id,
-            )
-
-        # --- дубликаты ---
-        dup_key = (obj_id, entry.get("building", ""))
-        if dup_key in seen:
-            logger.warning(
-                "Конфиг %s: дубликат записи (object_id=%s, building=%r)",
-                prefix, obj_id, entry.get("building", ""),
-            )
-        else:
-            seen.add(dup_key)
-
-    if errors:
-        msg = "Ошибки валидации конфига:\n" + "\n".join(f"  - {e}" for e in errors)
-        logger.error(msg)
-        raise ValueError(msg)
-
-    logger.info("Конфиг валиден: %d записей в links", len(links))
-
-
 # ─── Базовый парсер ──────────────────────────────────────
 
 class BaseParser(ABC):
     def __init__(self, config_path: str | Path):
         self.config = load_config(config_path)
-        validate_config(self.config, require_building=False)
+        validate_config(self.config, require_building=False, log=logger)
         self.site_name: str = self.config["name"]
         self.site_key: str = self.config.get("key", self.site_name.lower())
         self.log = logging.getLogger(f"storehouses.{self.site_key}")

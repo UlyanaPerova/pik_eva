@@ -175,6 +175,60 @@ scoring:
     - {max: 100000, points: 2}
     - {max: 999999999, points: 0}
 
+  # ── ПЕРВЫЙ ЭТАП: параметры Excel-формул (ранее захардкожены в scoring.py) ──
+
+  # F1: Срок ввода — линейная интерполяция по дням
+  deadline_formula:
+    tier1_days: 365        # до этого порога: от tier1_max_pts убывает
+    tier1_max_pts: 20      # баллов при 0 дней
+    tier1_decay_pts: 10    # сколько баллов теряется за tier1_days дней
+    tier2_days: 730        # второй порог
+    tier2_max_pts: 10      # баллов при tier1_days дней
+    tier2_decay_pts: 5     # сколько баллов теряется за (tier2 - tier1) дней
+
+  # F2: Соотношение квартир/кладовых — кусочно-линейная шкала
+  apt_store_ratio_formula:
+    # breakpoints: [[порог, базовые_баллы, множитель_за_единицу], ...]
+    # При ratio < 5: -10 - (5 - ratio) * 2
+    # При ratio 5-10: 15 + (ratio - 5) * 5
+    # При ratio 10-15: 40 + (ratio - 10) * 10
+    # При ratio > 15: 90 + (ratio - 15) * 15
+    under_5_base: -10
+    under_5_mult: 2
+    tier_5_10_base: 15
+    tier_5_10_mult: 5
+    tier_10_15_base: 40
+    tier_10_15_mult: 10
+    over_15_base: 90
+    over_15_mult: 15
+
+  # F4-F5: Бонусы квартирографии за хорошие балконы
+  balcony_bonus:
+    # При ratio 1.5-2 и размер "М": повышенные баллы за 2к и 3к+4к
+    two_k_bonus_ratio_range: [1.5, 2]
+    two_k_bonus_size: "М"
+    two_k_bonus_tiers: [{max: 40, points: 1}, {max: 50, points: 3}, {max: 100, points: 5}]
+    # При ratio > 2 и размер "М" или "С"
+    two_k_bonus2_ratio_min: 2
+    two_k_bonus2_sizes: ["М", "С"]
+    two_k_bonus2_tiers: [{max: 40, points: 2}, {max: 50, points: 5}, {max: 100, points: 7}]
+    # 3к+4к аналогично
+    three_4k_bonus_tiers: [{max: 10, points: 2}, {max: 15, points: 5}, {max: 100, points: 10}]
+    three_4k_bonus2_tiers: [{max: 10, points: 5}, {max: 15, points: 10}, {max: 100, points: 15}]
+
+  # F8: Соотношение квартир/балконов — кусочно-линейная шкала
+  balcony_ratio_formula:
+    # breakpoints: [[порог, базовые_баллы], ...]
+    breakpoints:
+      - [1.0, -10]
+      - [1.5, 5]
+      - [2.0, 10]
+      - [2.5, 15]
+      - [3.0, 22.5]
+      - [3.5, 35]
+      - [4.0, 50]
+      - [99, 67.5]     # выше 4 — экстраполяция
+
   # ── ВТОРОЙ ЭТАП: параметры Excel-формулы (линейная интерполяция) ──
   # Эти параметры используются для генерации Excel-формул на листе «кладовки».
   # Пользователь может изменить пороги — формулы перегенерируются автоматически.

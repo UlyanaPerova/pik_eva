@@ -235,19 +235,34 @@ def generate_first_stage_formula(row: int, scoring: dict | None = None) -> str:
              f'{c["building"]}{r}="",'
              f'COUNTA({c["apt_store_ratio"]}{r}:{c["nl_4k"]}{r})<15),0,IFERROR(')
 
-    # ── 1. Срок ввода (дни) ──
-    # Линейная интерполяция (не из yaml — специфическая формула)
-    f1 = (f'(IF(OR({c["days"]}{r}="",{c["days"]}{r}=0),0,'
-          f'IF({c["days"]}{r}<365,20-{c["days"]}{r}*(10/365),'
-          f'IF({c["days"]}{r}<730,10-({c["days"]}{r}-365)*(5/365),0))))')
+    # ── 1. Срок ввода (дни) ── из eva.yaml → deadline_formula
+    dl = scoring.get("deadline_formula", {})
+    dl_t1 = dl.get("tier1_days", 365)
+    dl_t1_pts = dl.get("tier1_max_pts", 20)
+    dl_t1_decay = dl.get("tier1_decay_pts", 10)
+    dl_t2 = dl.get("tier2_days", 730)
+    dl_t2_pts = dl.get("tier2_max_pts", 10)
+    dl_t2_decay = dl.get("tier2_decay_pts", 5)
+    d = c["days"]
+    f1 = (f'(IF(OR({d}{r}="",{d}{r}=0),0,'
+          f'IF({d}{r}<{dl_t1},{dl_t1_pts}-{d}{r}*({dl_t1_decay}/{dl_t1}),'
+          f'IF({d}{r}<{dl_t2},{dl_t2_pts}-({d}{r}-{dl_t1})*({dl_t2_decay}/({dl_t2}-{dl_t1})),0))))')
 
-    # ── 2. Соотнош. квартир/кладовых (M) ──
-    # Нелинейная шкала (не из yaml — специфическая формула)
+    # ── 2. Соотнош. квартир/кладовых (M) ── из eva.yaml → apt_store_ratio_formula
+    asr = scoring.get("apt_store_ratio_formula", {})
+    asr_u5_b = asr.get("under_5_base", -10)
+    asr_u5_m = asr.get("under_5_mult", 2)
+    asr_510_b = asr.get("tier_5_10_base", 15)
+    asr_510_m = asr.get("tier_5_10_mult", 5)
+    asr_1015_b = asr.get("tier_10_15_base", 40)
+    asr_1015_m = asr.get("tier_10_15_mult", 10)
+    asr_o15_b = asr.get("over_15_base", 90)
+    asr_o15_m = asr.get("over_15_mult", 15)
     m = c["apt_store_ratio"]
-    f2 = (f'(IF({m}{r}<5,-10-(5-{m}{r})*2,'
-          f'IF({m}{r}<=10,15+({m}{r}-5)*5,'
-          f'IF({m}{r}<=15,40+({m}{r}-10)*10,'
-          f'90+({m}{r}-15)*15))))')
+    f2 = (f'(IF({m}{r}<5,{asr_u5_b}-(5-{m}{r})*{asr_u5_m},'
+          f'IF({m}{r}<=10,{asr_510_b}+({m}{r}-5)*{asr_510_m},'
+          f'IF({m}{r}<=15,{asr_1015_b}+({m}{r}-10)*{asr_1015_m},'
+          f'{asr_o15_b}+({m}{r}-15)*{asr_o15_m}))))')
 
     # ── 3. Квартирография: студии + 1к (%) ── из eva.yaml
     s = c["rooms_studio"]
@@ -256,28 +271,44 @@ def generate_first_stage_formula(row: int, scoring: dict | None = None) -> str:
     f3_inner = _excel_threshold_formula(f'({s}{r}+{t}{r})', kvart.get("studio_1k", []))
     f3 = f'({f3_inner})'
 
-    # ── 4. Квартирография: 2к (%) ── зависит от балконов
+    # ── 4. Квартирография: 2к (%) ── зависит от балконов, из eva.yaml → balcony_bonus
     u = c["rooms_2k"]
     n = c["balcony_ratio"]
     j = c["balcony_size"]
     two_k_th = kvart.get("two_k", [])
     f4_base = _excel_threshold_formula(f'{u}{r}', two_k_th)
-    # Бонусы при хороших балконах (захардкожены — специфическая логика)
-    f4 = (f'(IF(AND({n}{r}>=1.5,{n}{r}<=2,{j}{r}="М"),'
-          f'IF({u}{r}<40,1,IF({u}{r}<=50,3,5)),'
-          f'IF(AND({n}{r}>2,OR({j}{r}="М",{j}{r}="С")),'
-          f'IF({u}{r}<40,2,IF({u}{r}<=50,5,7)),'
+
+    bb = scoring.get("balcony_bonus", {})
+    bb_r1 = bb.get("two_k_bonus_ratio_range", [1.5, 2])
+    bb_s1 = bb.get("two_k_bonus_size", "М")
+    bb_t1 = bb.get("two_k_bonus_tiers", [{"max": 40, "points": 1}, {"max": 50, "points": 3}, {"max": 100, "points": 5}])
+    bb_r2_min = bb.get("two_k_bonus2_ratio_min", 2)
+    bb_s2 = bb.get("two_k_bonus2_sizes", ["М", "С"])
+    bb_t2 = bb.get("two_k_bonus2_tiers", [{"max": 40, "points": 2}, {"max": 50, "points": 5}, {"max": 100, "points": 7}])
+
+    or_sizes2 = ",".join(f'{j}{r}="{s}"' for s in bb_s2)
+    f4 = (f'(IF(AND({n}{r}>={bb_r1[0]},{n}{r}<={bb_r1[1]},{j}{r}="{bb_s1}"),'
+          f'IF({u}{r}<{bb_t1[0]["max"]},{bb_t1[0]["points"]},'
+          f'IF({u}{r}<={bb_t1[1]["max"]},{bb_t1[1]["points"]},{bb_t1[2]["points"]})),'
+          f'IF(AND({n}{r}>{bb_r2_min},OR({or_sizes2})),'
+          f'IF({u}{r}<{bb_t2[0]["max"]},{bb_t2[0]["points"]},'
+          f'IF({u}{r}<={bb_t2[1]["max"]},{bb_t2[1]["points"]},{bb_t2[2]["points"]})),'
           f'{f4_base})))')
 
-    # ── 5. Квартирография: 3к + 4к (%) ── зависит от балконов
+    # ── 5. Квартирография: 3к + 4к (%) ── зависит от балконов, из eva.yaml → balcony_bonus
     v = c["rooms_3k"]
     w = c["rooms_4k"]
     three_4k_th = kvart.get("three_4k", [])
     f5_base = _excel_threshold_formula(f'({v}{r}+{w}{r})', three_4k_th)
-    f5 = (f'(IF(AND({n}{r}>=1.5,{n}{r}<=2,{j}{r}="М"),'
-          f'IF(({v}{r}+{w}{r})<10,2,IF(({v}{r}+{w}{r})<=15,5,10)),'
-          f'IF(AND({n}{r}>2,OR({j}{r}="М",{j}{r}="С")),'
-          f'IF(({v}{r}+{w}{r})<10,5,IF(({v}{r}+{w}{r})<=15,10,15)),'
+
+    bb_3t1 = bb.get("three_4k_bonus_tiers", [{"max": 10, "points": 2}, {"max": 15, "points": 5}, {"max": 100, "points": 10}])
+    bb_3t2 = bb.get("three_4k_bonus2_tiers", [{"max": 10, "points": 5}, {"max": 15, "points": 10}, {"max": 100, "points": 15}])
+    f5 = (f'(IF(AND({n}{r}>={bb_r1[0]},{n}{r}<={bb_r1[1]},{j}{r}="{bb_s1}"),'
+          f'IF(({v}{r}+{w}{r})<{bb_3t1[0]["max"]},{bb_3t1[0]["points"]},'
+          f'IF(({v}{r}+{w}{r})<={bb_3t1[1]["max"]},{bb_3t1[1]["points"]},{bb_3t1[2]["points"]})),'
+          f'IF(AND({n}{r}>{bb_r2_min},OR({or_sizes2})),'
+          f'IF(({v}{r}+{w}{r})<{bb_3t2[0]["max"]},{bb_3t2[0]["points"]},'
+          f'IF(({v}{r}+{w}{r})<={bb_3t2[1]["max"]},{bb_3t2[1]["points"]},{bb_3t2[2]["points"]})),'
           f'{f5_base})))')
 
     # ── 6. Средняя площадь по типам ── из eva.yaml
@@ -305,6 +336,9 @@ def generate_first_stage_formula(row: int, scoring: dict | None = None) -> str:
     f7 = f'({"+".join(f7_parts)})'
 
     # ── 8. Балконы: ratio (N) ── нелинейная шкала
+    # Параметры в eva.yaml → balcony_ratio_formula (для будущего GUI),
+    # но формула пока использует оригинальный hardcoded паттерн,
+    # т.к. breakpoints не передают slope корректно для экстраполяции.
     f8 = (f'(IF({n}{r}<=1,-10,IF({n}{r}<=1.5,5,IF({n}{r}<=2,10+({n}{r}-1.5)*10,'
           f'IF({n}{r}<=2.5,15+({n}{r}-2)*15,IF({n}{r}<=3,22.5+({n}{r}-2.5)*25,'
           f'IF({n}{r}<=3.5,35+({n}{r}-3)*30,IF({n}{r}<=4,50+({n}{r}-3.5)*35,'

@@ -29,6 +29,22 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 import json
 
+from exporter_common import (
+    HEADER_FILL, HEADER_FONT,
+    CITY_FILL, CITY_FONT,
+    COMPLEX_FILL, COMPLEX_FONT,
+    DATA_FONT, DATA_ALIGN,
+    LINK_FONT, NEW_ITEM_FILL,
+    TOTAL_FONT, COMPLEX_TOTAL_FILL, GRAND_TOTAL_FILL,
+    THIN_BORDER, BUILDING_BOTTOM,
+    SITE_NAMES, SITE_FILE_KEYS,
+    append_comment as _append_comment,
+    natural_sort_key as _natural_sort_key,
+    add_new_item_comment as _add_new_item_comment_common,
+    add_price_comment as _add_price_comment_common,
+    add_ppm_comment as _add_ppm_comment_common,
+)
+
 from parsers.base import (
     StorehouseItem, get_price_history, get_first_seen_date,
     get_all_known_ids, logger, PROJECT_DIR, DATA_DIR,
@@ -65,75 +81,10 @@ def _load_or_create_baseline(items: list[StorehouseItem]) -> set[str]:
 
     return all_baseline
 
-# ── Стили ────────────────────────────────────────────
-HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
-
-CITY_FILL = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
-CITY_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=14)
-
-COMPLEX_FILL = PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
-COMPLEX_FONT = Font(name="Calibri", bold=True, color="2F5496", size=12)
-
-DATA_FONT = Font(name="Calibri", size=11)
-DATA_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-LINK_FONT = Font(name="Calibri", size=11, color="0563C1", underline="single")
-NEW_ITEM_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+# ── Стили: импортированы из exporter_common ─────────────
+# Локальные алиас�� для совместимости внутри файла
 NEW_ITEM_LINK_FONT = Font(name="Calibri", size=11, color="0563C1", underline="single")
-
-TOTAL_FONT = Font(name="Calibri", size=11, bold=True)
-COMPLEX_TOTAL_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-GRAND_TOTAL_FILL = PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
-
-THIN_BORDER = Border(
-    left=Side(style="thin", color="D9D9D9"),
-    right=Side(style="thin", color="D9D9D9"),
-    top=Side(style="thin", color="D9D9D9"),
-    bottom=Side(style="thin", color="D9D9D9"),
-)
-
-BUILDING_BOTTOM = Border(
-    left=Side(style="thin", color="D9D9D9"),
-    right=Side(style="thin", color="D9D9D9"),
-    top=Side(style="thin", color="D9D9D9"),
-    bottom=Side(style="medium", color="808080"),
-)
-
-BUILDING_BOTTOM_ALL = Border(
-    left=Side(style="thin", color="D9D9D9"),
-    right=Side(style="thin", color="D9D9D9"),
-    top=Side(style="thin", color="D9D9D9"),
-    bottom=Side(style="medium", color="808080"),
-)
-
-SITE_NAMES = {
-    "pik": "ПИК",
-    "akbarsdom": "Ак Бар Дом",
-    "smu88": "СМУ-88",
-    "glorax": "GloraX",
-    "unistroy": "УниСтрой",
-    "domrf": "ДОМ.РФ",
-}
-
-SITE_FILE_KEYS = {
-    "pik": "PIK",
-    "akbarsdom": "AkBarsDom",
-    "smu88": "SMU88",
-    "glorax": "GloraX",
-    "unistroy": "Unistroy",
-    "domrf": "DomRF",
-}
-
-
-def _append_comment(cell, text: str, author: str = "Парсер") -> None:
-    """Добавить текст к комментарию ячейки, не затирая существующий."""
-    if cell.comment:
-        existing = cell.comment.text or ""
-        if text not in existing:  # не дублировать
-            cell.comment = Comment(f"{existing}\n{text}", author)
-    else:
-        cell.comment = Comment(text, author)
+BUILDING_BOTTOM_ALL = BUILDING_BOTTOM
 
 
 # ── Колонки ──────────────────────────────────────────
@@ -166,17 +117,7 @@ FLAT_COLUMNS = [
 FCOL = len(FLAT_COLUMNS)
 
 
-def _natural_sort_key(text: str):
-    """Натуральная сортировка: 'ПК-2' < 'ПК-10', 'Корпус 1.1' < 'Корпус 1.2' < 'Корпус 2'."""
-    import re as _re
-    parts = _re.split(r'(\d+(?:\.\d+)?)', text.lower())
-    result = []
-    for part in parts:
-        try:
-            result.append(float(part))
-        except ValueError:
-            result.append(part)
-    return result
+# _natural_sort_key — импортирована из exporter_common
 
 
 def _sort_key(it: StorehouseItem):
@@ -610,80 +551,28 @@ def _fill_flat_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
 
 def _add_new_item_comment(ws, row, col, item, previously_known, conn,
                           baseline_ids, total_cols=None):
-    """
-    Примечание «Добавлена от [дата]» — если кладовки НЕТ в baseline (первый парсинг).
-    Зелёная заливка — только если кладовка новая в ЭТОМ парсинге.
-    """
-    # Первый запуск (previously_known пуст) — ничего не помечаем
-    is_first_run = len(previously_known) == 0
-    is_new_this_parse = (not is_first_run) and (item.item_id not in previously_known)
-    is_after_baseline = item.item_id not in baseline_ids
-
-    # Примечание — только для кладовок, появившихся после первого парсинга
-    if is_after_baseline:
-        first_seen = get_first_seen_date(conn, item.site, item.item_id)
-        if first_seen:
-            try:
-                from datetime import datetime as _dt
-                dt = _dt.fromisoformat(first_seen)
-                date_str = dt.strftime("%d.%m.%Y %H:%M")
-            except (ValueError, TypeError):
-                date_str = first_seen[:16]
-        else:
-            from datetime import datetime as _dt
-            date_str = _dt.now().strftime("%d.%m.%Y %H:%M")
-
-        cell = ws.cell(row=row, column=col)
-        _append_comment(cell, f"Добавлена от {date_str}", "Парсер кладовок")
-        cell.comment.width = 200
-        cell.comment.height = 30
-
-    # Зелёная заливка — только для новых в этом парсинге
-    if is_new_this_parse:
-        ncols = total_cols or ws.max_column
-        for c in range(1, ncols + 1):
-            ws.cell(row=row, column=c).fill = NEW_ITEM_FILL
+    """Примечание «Добавлена от [дата]» — делегирует в exporter_common."""
+    _add_new_item_comment_common(
+        ws, row, col, item, previously_known, conn, baseline_ids,
+        get_first_seen_fn=get_first_seen_date,
+        author="Парсер кладовок",
+        total_cols=total_cols,
+    )
 
 
 def _add_price_comment(ws, row, col, conn, item):
-    """Примечание к ячейке «Цена» — скидка + история."""
-    lines = []
-
-    if item.discount_percent and item.original_price:
-        lines.append(
-            f"Скидка {item.discount_percent:.0f}%, "
-            f"цена без скидки: {item.original_price:,.0f} ₽"
-        )
-
-    history = get_price_history(conn, item.site, item.item_id)
-    if len(history) > 1:
-        lines.append("Предыдущие цены:")
-        for price, ppm, orig_price, discount, date_str in history[1:]:
-            date_short = date_str[:10]
-            entry = f"• {price:,.0f} ₽ ({date_short})"
-            if discount and orig_price:
-                entry += f" [скидка {discount:.0f}%, без скидки: {orig_price:,.0f} ₽]"
-            lines.append(entry)
-
-    if lines:
-        cell = ws.cell(row=row, column=col)
-        _append_comment(cell, "\n".join(lines), "Парсер кладовок")
-        cell.comment.width = 350
-        cell.comment.height = max(80, len(lines) * 20)
+    """Примечание к ячейке «Цена» — делегирует в exporter_common."""
+    _add_price_comment_common(
+        ws, row, col, conn, item,
+        get_price_history_fn=get_price_history,
+        author="Парсер кладовок",
+    )
 
 
 def _add_ppm_comment(ws, row, col, conn, item):
-    """Примечание к ячейке «Цена/м²» — история."""
-    history = get_price_history(conn, item.site, item.item_id)
-    if len(history) <= 1:
-        return
-
-    lines = ["Предыдущие цены/м²:"]
-    for price, ppm, orig_price, discount, date_str in history[1:]:
-        date_short = date_str[:10]
-        lines.append(f"• {ppm:,.0f} ₽/м² ({date_short})")
-
-    cell = ws.cell(row=row, column=col)
-    _append_comment(cell, "\n".join(lines), "Парсер кладовок")
-    cell.comment.width = 300
-    cell.comment.height = max(60, len(lines) * 18)
+    """Примечание к ячейке «Цена/м²» — делегирует в exporter_common."""
+    _add_ppm_comment_common(
+        ws, row, col, conn, item,
+        get_price_history_fn=get_price_history,
+        author="Парсер кладовок",
+    )

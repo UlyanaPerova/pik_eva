@@ -24,7 +24,9 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -370,3 +372,158 @@ def sync_configs() -> dict[str, int]:
         added_to_store, added_to_apt,
     )
     return {"added_to_apartments": added_to_apt, "added_to_storehouses": added_to_store}
+
+
+# ═══════════════════════════════════════════════════════
+#  СТАТУС И ИНФОРМАЦИЯ О ЗАПУСКАХ (для GUI/оркестранта)
+# ═══════════════════════════════════════════════════════
+
+PROJECT_DIR = Path(__file__).resolve().parent
+APT_DB = PROJECT_DIR / "data" / "apartments" / "apartments_history.db"
+STORE_DB = PROJECT_DIR / "data" / "history.db"
+
+
+def get_status() -> dict:
+    """Общий статус системы: какие сайты спарсены, когда, сколько items.
+
+    Returns:
+        {
+            "apartments": {
+                "db_exists": True,
+                "sites": {
+                    "domrf": {"count": 1234, "last_parsed": "2026-04-03T12:00:00"},
+                    "pik": {"count": 56, "last_parsed": "2026-04-02T10:30:00"},
+                    ...
+                }
+            },
+            "storehouses": {
+                "db_exists": True,
+                "sites": {
+                    "pik": {"count": 100, "last_parsed": "2026-04-03T12:00:00"},
+                    ...
+                }
+            },
+            "config": {
+                "apartments_links": 50,
+                "storehouses_links": 51,
+            }
+        }
+    """
+    result = {
+        "apartments": {"db_exists": APT_DB.exists(), "sites": {}},
+        "storehouses": {"db_exists": STORE_DB.exists(), "sites": {}},
+        "config": {"apartments_links": 0, "storehouses_links": 0},
+    }
+
+    # Конфиги
+    if DOMRF_APARTMENTS_PATH.exists():
+        apt_cfg = _load_yaml(DOMRF_APARTMENTS_PATH)
+        result["config"]["apartments_links"] = len(apt_cfg.get("links", []))
+    if DOMRF_STOREHOUSES_PATH.exists():
+        store_cfg = _load_yaml(DOMRF_STOREHOUSES_PATH)
+        result["config"]["storehouses_links"] = len(store_cfg.get("links", []))
+
+    # БД квартир
+    if APT_DB.exists():
+        conn = sqlite3.connect(str(APT_DB))
+        try:
+            rows = conn.execute("""
+                SELECT site, COUNT(DISTINCT item_id), MAX(parsed_at)
+                FROM apartment_prices
+                GROUP BY site
+            """).fetchall()
+            for site, count, last_parsed in rows:
+                result["apartments"]["sites"][site] = {
+                    "count": count,
+                    "last_parsed": last_parsed,
+                }
+        finally:
+            conn.close()
+
+    # БД кладовок
+    if STORE_DB.exists():
+        conn = sqlite3.connect(str(STORE_DB))
+        try:
+            rows = conn.execute("""
+                SELECT site, COUNT(DISTINCT item_id), MAX(parsed_at)
+                FROM prices
+                GROUP BY site
+            """).fetchall()
+            for site, count, last_parsed in rows:
+                result["storehouses"]["sites"][site] = {
+                    "count": count,
+                    "last_parsed": last_parsed,
+                }
+        finally:
+            conn.close()
+
+    return result
+
+
+def get_last_run_info(site: str) -> dict:
+    """Детали последнего парсинга для указанного сайта.
+
+    Args:
+        site: ключ сайта ('pik', 'domrf', 'glorax', ...)
+
+    Returns:
+        {
+            "apartments": {"count": N, "last_parsed": "...", "complexes": [...]},
+            "storehouses": {"count": N, "last_parsed": "...", "complexes": [...]},
+        }
+    """
+    result = {"apartments": None, "storehouses": None}
+
+    if APT_DB.exists():
+        conn = sqlite3.connect(str(APT_DB))
+        try:
+            row = conn.execute("""
+                SELECT COUNT(DISTINCT item_id), MAX(parsed_at)
+                FROM apartment_prices WHERE site = ?
+            """, (site,)).fetchone()
+            if row and row[0] > 0:
+                complexes = conn.execute("""
+                    SELECT DISTINCT complex_name
+                    FROM apartment_prices WHERE site = ?
+                    ORDER BY complex_name
+                """, (site,)).fetchall()
+                result["apartments"] = {
+                    "count": row[0],
+                    "last_parsed": row[1],
+                    "complexes": [r[0] for r in complexes],
+                }
+        finally:
+            conn.close()
+
+    if STORE_DB.exists():
+        conn = sqlite3.connect(str(STORE_DB))
+        try:
+            row = conn.execute("""
+                SELECT COUNT(DISTINCT item_id), MAX(parsed_at)
+                FROM prices WHERE site = ?
+            """, (site,)).fetchone()
+            if row and row[0] > 0:
+                complexes = conn.execute("""
+                    SELECT DISTINCT complex_name
+                    FROM prices WHERE site = ?
+                    ORDER BY complex_name
+                """, (site,)).fetchall()
+                result["storehouses"] = {
+                    "count": row[0],
+                    "last_parsed": row[1],
+                    "complexes": [r[0] for r in complexes],
+                }
+        finally:
+            conn.close()
+
+    return result
+
+
+def get_scoring_config() -> dict:
+    """Получить текущие пороги скоринга из eva.yaml (для GUI)."""
+    eva_path = CONFIGS_DIR / "eva.yaml"
+    if not eva_path.exists():
+        return {}
+    with open(eva_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    return cfg.get("scoring", {})
