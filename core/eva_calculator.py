@@ -940,6 +940,17 @@ def _aggregate(
             )
             if has_others:
                 keys_to_remove.append(key)
+        elif ck in config_complexes and not b.domrf_apt_count and not b.domrf_store_count:
+            # Строка от застройщика без данных ДОМ.РФ в ЖК, который есть в конфиге —
+            # мусор (не привязался к конфиг-корпусу)
+            config_buildings_norm = set()
+            for link in domrf_config.get("links", []):
+                if _norm(_apply_alias(link.get("complex_name", ""))) == ck[1]:
+                    cb = link.get("building", "")
+                    if cb:
+                        config_buildings_norm.add(_norm(cb))
+            if _norm(b.building) not in config_buildings_norm:
+                keys_to_remove.append(key)
     for key in keys_to_remove:
         del buildings[key]
 
