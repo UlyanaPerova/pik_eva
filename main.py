@@ -14,7 +14,7 @@ from parsers.base import (
     init_db, save_items, backup_db, validate_items, logger,
 )
 from parsers.pik import PikParser
-from exporter import export_xlsx
+from exporters.storehouses import export_xlsx
 
 
 PARSERS = {

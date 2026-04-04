@@ -80,7 +80,7 @@ async def run_storehouse_parser(
         init_db, save_items, backup_db, validate_items,
         get_all_known_ids, logger,
     )
-    from exporter import export_xlsx
+    from exporters.storehouses import export_xlsx
 
     logger.info("=" * 50)
     logger.info("Запуск парсера %s", site_label)
@@ -159,7 +159,7 @@ async def run_apartment_parser(
         init_db, save_items, backup_db, validate_items,
         get_all_known_ids, logger,
     )
-    from exporter_apartments import export_apartments_xlsx
+    from exporters.apartments import export_apartments_xlsx
 
     logger.info("=" * 50)
     logger.info("Запуск парсера квартир %s", site_label)
@@ -195,7 +195,7 @@ async def run_apartment_parser(
         output_path = export_apartments_xlsx(items, conn, previously_known=previously_known)
 
         if add_kvartirografia:
-            from kvartirografia import add_kvartirografia_sheets
+            from core.kvartirografia import add_kvartirografia_sheets
             from openpyxl import load_workbook
 
             wb = load_workbook(str(output_path))

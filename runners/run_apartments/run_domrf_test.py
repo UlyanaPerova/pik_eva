@@ -21,15 +21,15 @@ from parsers.apartments_base import (
     get_all_known_ids, calc_avg_prices, rooms_label, logger,
 )
 from parsers.domrf_apartments import DomRfApartmentParser, ObjectInfo
-from exporter_apartments import export_apartments_xlsx
+from exporters.apartments import export_apartments_xlsx
 
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from collections import defaultdict, Counter as _Counter
-from kvartirografia import add_kvartirografia_sheets
-from smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
+from core.kvartirografia import add_kvartirografia_sheets
+from core.smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
 from parsers.apartments_base import OUTPUT_DIR
 import re
 

@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eva_calculator import export_eva_xlsx
+from core.eva_calculator import export_eva_xlsx
 from runners.run_result import RunResult
 
 # Пути к БД
@@ -84,7 +84,7 @@ def main() -> int:
     try:
         if args.dry_run:
             # Dry-run: только агрегация и валидация, без записи файла
-            from eva_calculator import _aggregate, _load_apartments, _load_storehouses
+            from core.eva_calculator import _aggregate, _load_apartments, _load_storehouses
             logger.info("DRY-RUN: валидация данных без записи файла")
 
             apts = _load_apartments(conn_apt, args.sites[0] if args.sites and len(args.sites) == 1 else None)

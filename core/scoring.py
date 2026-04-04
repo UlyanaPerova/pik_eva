@@ -41,7 +41,7 @@ from pathlib import Path
 import yaml
 
 
-CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 
 def load_scoring_config() -> dict:

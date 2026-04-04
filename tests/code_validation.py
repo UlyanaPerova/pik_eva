@@ -9,18 +9,21 @@
 72 теста, ~0.4 секунды.
 
 Запуск:
-    python tests_code_validation.py
-    python -m unittest tests_code_validation -v
+    python tests/code_validation.py
+    python -m unittest tests.code_validation -v
 """
 from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-os.chdir(Path(__file__).resolve().parent)
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+os.chdir(PROJECT_DIR)
+sys.path.insert(0, str(PROJECT_DIR))
 
 
 # ═══════════════════════════════════════════════════════
@@ -322,7 +325,7 @@ class TestBuilding(unittest.TestCase):
     def test_building_key_matches_norm(self):
         """building_key должна давать те же результаты, что _norm в eva_calculator."""
         from parsers.building import building_key
-        from eva_calculator import _norm
+        from core.eva_calculator import _norm
         cases = ["Корпус 1", "1", "М1/ПК-1", "корпус 10", "1.2"]
         for c in cases:
             self.assertEqual(building_key(c), _norm(c), f"Mismatch for '{c}'")
@@ -455,30 +458,30 @@ class TestRunResult(unittest.TestCase):
 class TestExporterCommon(unittest.TestCase):
 
     def test_natural_sort_key(self):
-        from exporter_common import natural_sort_key
+        from exporters.common import natural_sort_key
         items = ["ПК-10", "ПК-2", "ПК-1", "ПК-20"]
         result = sorted(items, key=natural_sort_key)
         self.assertEqual(result, ["ПК-1", "ПК-2", "ПК-10", "ПК-20"])
 
     def test_natural_sort_key_buildings(self):
-        from exporter_common import natural_sort_key
+        from exporters.common import natural_sort_key
         items = ["Корпус 2", "Корпус 1.2", "Корпус 1.1", "Корпус 10"]
         result = sorted(items, key=natural_sort_key)
         self.assertEqual(result, ["Корпус 1.1", "Корпус 1.2", "Корпус 2", "Корпус 10"])
 
     def test_site_names(self):
-        from exporter_common import SITE_NAMES
+        from exporters.common import SITE_NAMES
         self.assertIn("pik", SITE_NAMES)
         self.assertIn("domrf", SITE_NAMES)
         self.assertEqual(SITE_NAMES["pik"], "ПИК")
 
     def test_site_file_keys(self):
-        from exporter_common import SITE_FILE_KEYS
+        from exporters.common import SITE_FILE_KEYS
         self.assertEqual(SITE_FILE_KEYS["pik"], "PIK")
         self.assertEqual(SITE_FILE_KEYS["domrf"], "DomRF")
 
     def test_append_comment_new(self):
-        from exporter_common import append_comment
+        from exporters.common import append_comment
         from openpyxl import Workbook
         wb = Workbook()
         ws = wb.active
@@ -487,7 +490,7 @@ class TestExporterCommon(unittest.TestCase):
         self.assertEqual(cell.comment.text, "Тест")
 
     def test_append_comment_existing(self):
-        from exporter_common import append_comment
+        from exporters.common import append_comment
         from openpyxl import Workbook
         from openpyxl.comments import Comment
         wb = Workbook()
@@ -499,7 +502,7 @@ class TestExporterCommon(unittest.TestCase):
         self.assertIn("Второй", cell.comment.text)
 
     def test_append_comment_no_duplicate(self):
-        from exporter_common import append_comment
+        from exporters.common import append_comment
         from openpyxl import Workbook
         from openpyxl.comments import Comment
         wb = Workbook()
@@ -511,9 +514,9 @@ class TestExporterCommon(unittest.TestCase):
         self.assertEqual(cell.comment.text.count("Текст"), 1)
 
     def test_styles_are_shared(self):
-        import exporter_common
-        import exporter
-        import exporter_apartments
+        import exporters.common as exporter_common
+        import exporters.storehouses as exporter
+        import exporters.apartments as exporter_apartments
         # Стили должны быть одними объектами
         self.assertIs(exporter.HEADER_FILL, exporter_common.HEADER_FILL)
         self.assertIs(exporter_apartments.HEADER_FILL, exporter_common.HEADER_FILL)
@@ -527,7 +530,7 @@ class TestExporterCommon(unittest.TestCase):
 class TestScoring(unittest.TestCase):
 
     def test_score_by_thresholds(self):
-        from scoring import _score_by_thresholds
+        from core.scoring import _score_by_thresholds
         thresholds = [
             {"max": 5, "points": 10},
             {"max": 10, "points": 5},
@@ -538,7 +541,7 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(_score_by_thresholds(100, thresholds), 0)
 
     def test_calc_first_stage(self):
-        from scoring import calc_first_stage
+        from core.scoring import calc_first_stage
         pts = calc_first_stage(
             days_until=180,
             rooms_count={0: 10, 1: 30, 2: 40, 3: 15, 4: 5},
@@ -550,13 +553,13 @@ class TestScoring(unittest.TestCase):
         self.assertGreater(pts, 0)
 
     def test_calc_second_stage(self):
-        from scoring import calc_second_stage
+        from core.scoring import calc_second_stage
         pts = calc_second_stage(area=3.5, price=400000, price_per_meter=80000)
         self.assertIsInstance(pts, int)
         self.assertGreater(pts, 0)
 
     def test_generate_first_stage_formula(self):
-        from scoring import generate_first_stage_formula
+        from core.scoring import generate_first_stage_formula
         formula = generate_first_stage_formula(3)
         self.assertTrue(formula.startswith("=ROUND("))
         self.assertIn("E3", formula)  # days
@@ -564,7 +567,7 @@ class TestScoring(unittest.TestCase):
         self.assertIn("S3", formula)  # rooms_studio
 
     def test_generate_second_stage_formula(self):
-        from scoring import generate_second_stage_formula
+        from core.scoring import generate_second_stage_formula
         formula = generate_second_stage_formula(5)
         self.assertTrue(formula.startswith("=ROUND("))
         self.assertIn("L5", formula)  # area
@@ -572,18 +575,18 @@ class TestScoring(unittest.TestCase):
         self.assertIn("N5", formula)  # ppm
 
     def test_generate_balcony_ratio_formula(self):
-        from scoring import generate_balcony_ratio_formula
+        from core.scoring import generate_balcony_ratio_formula
         formula = generate_balcony_ratio_formula(3)
         self.assertIn("IFERROR", formula)
         self.assertIn("3", formula)
 
     def test_generate_total_formula(self):
-        from scoring import generate_total_formula
+        from core.scoring import generate_total_formula
         formula = generate_total_formula(7)
         self.assertEqual(formula, "=ROUND(I7+J7,2)")
 
     def test_jk_cols_completeness(self):
-        from scoring import JK_COLS
+        from core.scoring import JK_COLS
         required_keys = [
             "city", "developer", "complex", "building", "days",
             "first_stage", "apt_store_ratio",
@@ -595,7 +598,7 @@ class TestScoring(unittest.TestCase):
 
     def test_formulas_read_from_yaml(self):
         """Формулы должны использовать параметры из eva.yaml, а не хардкод."""
-        from scoring import generate_first_stage_formula, load_scoring_config
+        from core.scoring import generate_first_stage_formula, load_scoring_config
         scoring = load_scoring_config()
         # Изменяем deadline параметры
         scoring_modified = dict(scoring)
@@ -657,7 +660,7 @@ class TestConfigManager(unittest.TestCase):
 class TestEvaCalculator(unittest.TestCase):
 
     def test_norm(self):
-        from eva_calculator import _norm
+        from core.eva_calculator import _norm
         self.assertEqual(_norm("Корпус 10"), "10")
         self.assertEqual(_norm("корпус 1"), "1")
         self.assertEqual(_norm("М1/ПК-1"), "м1пк1")
@@ -665,13 +668,13 @@ class TestEvaCalculator(unittest.TestCase):
         self.assertEqual(_norm("  1.2  "), "1.2")
 
     def test_norm_consistency(self):
-        from eva_calculator import _norm
+        from core.eva_calculator import _norm
         # Одинаковые строки → одинаковые ключи
         self.assertEqual(_norm("Корпус 1"), _norm("корпус 1"))
         self.assertEqual(_norm("М1/ПК-1"), _norm("м1/пк-1"))
 
     def test_building_agg_dataclass(self):
-        from eva_calculator import BuildingAgg
+        from core.eva_calculator import BuildingAgg
         # Просто убедимся что можно создать
         self.assertTrue(hasattr(BuildingAgg, "__dataclass_fields__"))
 
@@ -706,7 +709,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIsNotNone(BaseApartmentParser)
 
     def test_exporter_styles_available(self):
-        from exporter import (
+        from exporters.storehouses import (
             HEADER_FILL, HEADER_FONT, CITY_FILL, CITY_FONT,
             COMPLEX_FILL, COMPLEX_FONT, DATA_FONT, DATA_ALIGN,
             LINK_FONT, NEW_ITEM_FILL, THIN_BORDER, BUILDING_BOTTOM,
@@ -715,7 +718,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIsNotNone(HEADER_FILL)
 
     def test_exporter_apartments_styles_available(self):
-        from exporter_apartments import (
+        from exporters.apartments import (
             HEADER_FILL, HEADER_FONT, DATA_FONT, DATA_ALIGN,
             LINK_FONT, NEW_ITEM_FILL, THIN_BORDER,
             SITE_NAMES, SITE_FILE_KEYS,
@@ -797,7 +800,7 @@ class TestChecklist(unittest.TestCase):
 
     def test_formula_no_excel_errors(self):
         """Формулы не содержат #REF!, #DIV/0!, #VALUE!."""
-        from scoring import generate_first_stage_formula, generate_second_stage_formula
+        from core.scoring import generate_first_stage_formula, generate_second_stage_formula
         f1 = generate_first_stage_formula(3)
         f2 = generate_second_stage_formula(3)
         for bad in ["#REF!", "#DIV/0!", "#VALUE!", "#NAME?"]:
@@ -806,7 +809,7 @@ class TestChecklist(unittest.TestCase):
 
     def test_formula_contains_iferror(self):
         """Формулы защищены IFERROR."""
-        from scoring import generate_first_stage_formula, generate_second_stage_formula
+        from core.scoring import generate_first_stage_formula, generate_second_stage_formula
         f1 = generate_first_stage_formula(3)
         f2 = generate_second_stage_formula(3)
         self.assertIn("IFERROR", f1)

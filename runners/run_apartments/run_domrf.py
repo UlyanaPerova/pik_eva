@@ -24,9 +24,9 @@ from parsers.apartments_base import (
     OUTPUT_DIR,
 )
 from parsers.domrf_apartments import DomRfApartmentParser, ObjectInfo
-from exporter_apartments import export_apartments_xlsx
-from kvartirografia import add_kvartirografia_sheets
-from smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
+from exporters.apartments import export_apartments_xlsx
+from core.kvartirografia import add_kvartirografia_sheets
+from core.smart_merge import smart_merge, save_written_values, save_merge_statuses, copy_user_sheets
 from runners.run_result import RunResult
 
 from openpyxl import load_workbook

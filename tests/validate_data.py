@@ -24,7 +24,7 @@ from pathlib import Path
 import yaml
 from openpyxl import load_workbook
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = PROJECT_DIR / "configs"
 APT_DIR = PROJECT_DIR / "apartments"
 STORE_DIR = PROJECT_DIR / "output"
@@ -481,7 +481,7 @@ def validate_eva() -> None:
     print(f"{BOLD}{'═' * 60}{RESET}")
 
     try:
-        import eva_calculator
+        import core.eva_calculator as eva_calculator
         eva_calculator.load_eva_config()
     except Exception as e:
         error(f"Не удалось загрузить eva_calculator: {e}")

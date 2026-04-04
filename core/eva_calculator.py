@@ -33,7 +33,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 logger = logging.getLogger("eva")
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = PROJECT_DIR / "configs"
 APT_DIR = PROJECT_DIR / "apartments"
 STORE_DIR = PROJECT_DIR / "output"
@@ -1480,7 +1480,7 @@ def _fill_storehouses_sheet(ws, buildings: list[BuildingAgg]):
                 _write_cell(ws, row, 9, 0)
 
             # 10: Второй этап — формула из модуля scoring.py
-            from scoring import generate_second_stage_formula
+            from core.scoring import generate_second_stage_formula
             _write_cell(ws, row, 10, generate_second_stage_formula(row))
 
             # 11: Общие баллы = первый + второй
@@ -1645,7 +1645,7 @@ def _fill_jk_sheet(
         dev_url = dev_urls.get(bd.developer)
 
         # Формулы из модуля scoring.py (единый источник истины)
-        from scoring import generate_first_stage_formula, generate_balcony_ratio_formula
+        from core.scoring import generate_first_stage_formula, generate_balcony_ratio_formula
         balcony_ratio_formula = generate_balcony_ratio_formula(row)
         first_stage_formula = generate_first_stage_formula(row)
 
