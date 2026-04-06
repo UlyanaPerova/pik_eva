@@ -116,7 +116,7 @@ async def run_storehouse_parser(
         if export_filename:
             output_path = PROJECT_DIR / "output" / export_filename
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            export_xlsx(items, conn, filename=str(output_path))
+            export_xlsx(items, conn, filename=str(output_path), previously_known=previously_known)
         else:
             output_path = export_xlsx(items, conn, previously_known=previously_known)
 

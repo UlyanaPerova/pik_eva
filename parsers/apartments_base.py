@@ -127,6 +127,13 @@ def save_items(conn: sqlite3.Connection, items: list[ApartmentItem]) -> int:
             building_same = row[2] == item.building
             area_same = row[3] == item.area
             if price_same and building_same and area_same:
+                # Но обновляем object_id если он появился
+                if item.object_id:
+                    conn.execute(
+                        """UPDATE apartment_prices SET object_id = ?
+                           WHERE site = ? AND item_id = ? AND object_id IS NULL""",
+                        (item.object_id, item.site, item.item_id),
+                    )
                 continue
 
         conn.execute(
@@ -294,7 +301,7 @@ def calc_avg_prices(items: list[ApartmentItem]) -> dict:
 class BaseApartmentParser(ABC):
     def __init__(self, config_path: str | Path):
         self.config = load_config(config_path)
-        validate_config(self.config, require_building=True, log=logger)
+        validate_config(self.config, require_building=True, links_key="apartment_links", log=logger)
         self.site_name: str = self.config["name"]
         self.site_key: str = self.config.get("key", self.site_name.lower())
         self.log = logging.getLogger(f"apartments.{self.site_key}")

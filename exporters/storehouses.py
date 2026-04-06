@@ -348,11 +348,11 @@ def _fill_pretty_sheet(ws, items, conn, previously_known, baseline_ids) -> None:
                 )
                 ws.add_table(tab)
 
-            # Группировка ЖК (outline)
+            # Группировка ЖК (outline) — свёрнутые по умолчанию
             group_start = jk_row + 1
             group_end = block_end
             if group_end >= group_start:
-                ws.row_dimensions.group(group_start, group_end, outline_level=1)
+                ws.row_dimensions.group(group_start, group_end, outline_level=1, hidden=True)
 
     # ── Итоги по ЖК ──
     row += 1
