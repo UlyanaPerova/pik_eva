@@ -148,7 +148,13 @@ def _match_key(city: str, complex_name: str, building: str) -> tuple:
 # ─── Загрузка данных из БД ───────────────────────────────
 
 def _load_apartments(conn: sqlite3.Connection, site_filter: str | None = None) -> list[dict]:
-    """Загрузить последние записи квартир."""
+    """Загрузить последние записи квартир.
+
+    Дедупликация по (site, item_id, COALESCE(object_id, 0)):
+    один и тот же item_id может быть сп��рсен с разных object_id
+    (DOM.RF API возвращает все квартиры комплекса с каждой страницы объекта).
+    Группировка по object_id гарантирует, чт�� данные каждо��о корпуса сохранятся.
+    """
     query = """
         SELECT a.site, a.city, a.complex_name, a.building, a.item_id,
                a.rooms, a.floor, a.area, a.price, a.price_per_meter,
@@ -173,10 +179,15 @@ def _load_apartments(conn: sqlite3.Connection, site_filter: str | None = None) -
 
 
 def _load_storehouses(conn: sqlite3.Connection, site_filter: str | None = None) -> list[dict]:
-    """Загрузить последние записи кладовок."""
+    """Загрузить последние записи кладовок.
+
+    Дедупликация по (site, item_id, COALESCE(object_id, 0)):
+    аналогично квартирам — один item_id может быть у разных object_id.
+    """
     query = """
         SELECT p.site, p.city, p.complex_name, p.building, p.item_id,
-               p.item_number, p.area, p.price, p.price_per_meter, p.url
+               p.item_number, p.area, p.price, p.price_per_meter, p.url,
+               p.object_id
         FROM prices p
         INNER JOIN (
             SELECT site, item_id, MAX(parsed_at) AS max_pa
@@ -191,7 +202,8 @@ def _load_storehouses(conn: sqlite3.Connection, site_filter: str | None = None) 
     else:
         rows = conn.execute(query).fetchall()
     cols = ["site", "city", "complex_name", "building", "item_id",
-            "item_number", "area", "price", "price_per_meter", "url"]
+            "item_number", "area", "price", "price_per_meter", "url",
+            "object_id"]
     return [dict(zip(cols, r)) for r in rows]
 
 
@@ -556,19 +568,31 @@ def _aggregate(
     # Per-building агрегация квартир дом.рф
     # Ключ: (norm_city, norm_complex, norm_building)
     # Используем _resolve_building для ремапа API building → config building
+    # NB: один item_id может появиться у нескольких object_id (DOM.RF API особенность),
+    #     поэтому дедуплицируем по item_id при подсчёте.
     domrf_apt_by_building: dict[tuple, list[dict]] = defaultdict(list)
+    _apt_seen: dict[tuple, set] = defaultdict(set)  # bk → {item_id}
     for apt in domrf_apts:
         ck = _complex_key(apt["city"], apt["complex_name"])
         bld_resolved = _resolve_building(apt.get("building", ""), apt.get("object_id"))
         bk = (ck[0], ck[1], _norm(bld_resolved))
+        iid = apt.get("item_id", "")
+        if iid in _apt_seen[bk]:
+            continue  # Дубль item_id в этом же корпусе — пропустить
+        _apt_seen[bk].add(iid)
         domrf_apt_by_building[bk].append(apt)
 
     # Per-building агрегация кладовок дом.рф
     domrf_store_by_building: dict[tuple, list[dict]] = defaultdict(list)
+    _store_seen: dict[tuple, set] = defaultdict(set)
     for st in domrf_stores:
         ck = _complex_key(st["city"], st["complex_name"])
         bld_resolved = _resolve_building(st.get("building", ""), st.get("object_id"))
         bk = (ck[0], ck[1], _norm(bld_resolved))
+        iid = st.get("item_id", "")
+        if iid in _store_seen[bk]:
+            continue
+        _store_seen[bk].add(iid)
         domrf_store_by_building[bk].append(st)
 
     # Расчёт агрегатов per-building
