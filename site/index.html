@@ -45,7 +45,7 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 .page-head{margin-bottom:1.8rem;position:relative}
 .page-head__en{font-family:var(--font-thin);font-weight:300;font-size:.6rem;letter-spacing:.4em;text-transform:uppercase;color:rgba(17,17,17,.3);margin-bottom:.8rem}
 .page-head__title{font-family:var(--font-display);font-size:clamp(2.5rem,6vw,4.5rem);line-height:.85;letter-spacing:-.03em}
-.page-head__sub{font-family:var(--font-body);font-weight:300;font-size:.85rem;color:rgba(17,17,17,.45);margin-top:1rem;max-width:400px;line-height:1.6}
+.page-head__sub{font-family:var(--font-body);font-weight:300;font-size:clamp(.65rem,1.5vw,.85rem);color:rgba(17,17,17,.45);margin-top:.8rem;max-width:100%;line-height:1.6}
 .page-head__line{position:absolute;bottom:-1rem;left:0;width:60px;height:3px;background:var(--yellow)}
 
 /* ─── CARDS GRID ─── */
@@ -81,6 +81,8 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 .btn--sm{padding:.5rem 1rem;font-size:.6rem;letter-spacing:.2em}
 .btn--danger{background:transparent;color:rgba(17,17,17,.3);border:1px solid rgba(17,17,17,.15);font-size:.6rem;letter-spacing:.2em}
 .btn--danger:hover{border-color:var(--red);color:var(--red);background:rgba(255,51,51,.05)}
+.btn--add{background:rgba(17,17,17,.08);color:rgba(17,17,17,.4);border:none}
+.btn--add:hover{background:rgba(34,197,94,.25);color:#1a9d4a}
 
 /* ─── LOG ─── */
 .log-box{background:var(--ink);border-radius:10px;padding:1.5rem;max-height:400px;overflow-y:auto;margin-top:1.5rem;font-family:var(--font-thin);font-size:.75rem;line-height:1.8;color:rgba(255,255,255,.5)}
@@ -332,13 +334,13 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
         <div class="form-group"><label>Корпус</label><input type="text" id="link-building" placeholder="М1/ПК-1"></div>
         <div class="form-group"><label>Застройщик</label><input type="text" id="link-developer" placeholder="Ак Барс Дом"></div>
         <div class="form-group"><label>Город</label><input type="text" id="link-city" value="Казань"></div>
-        <button class="btn btn--sm" onclick="addLink()">Добавить</button>
+        <button class="btn btn--sm btn--add" onclick="addLink()">Добавить</button>
       </div>
     </div>
     </div>
   </div>
 
-  <div style="display:flex;gap:1rem;margin-bottom:1rem">
+  <div style="display:flex;gap:1rem;margin-bottom:1rem;align-items:center">
     <button class="btn btn--outline btn--sm" onclick="syncLinks()">Синхронизировать конфиги</button>
     <span id="links-count" style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.35)"></span>
   </div>
@@ -374,9 +376,6 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 
   <div style="margin-top:2rem">
     <div class="page-head__en" style="margin-bottom:.8rem">EVA Generation</div>
-    <p style="font-family:var(--font-thin);font-weight:300;font-size:.8rem;color:rgba(17,17,17,.45);margin-bottom:1rem">
-      Собрать сводный файл расчет_ева.xlsx на основе текущих баз данных
-    </p>
     <button class="btn btn--yellow" onclick="generateEva()">Собрать расчет EVA</button>
   </div>
 
@@ -890,7 +889,7 @@ async function loadGit() {
     if (data.behind > 0) {
       behind.innerHTML = `<span class="mr">${data.behind}</span> коммитов позади origin`;
     } else {
-      behind.innerHTML = '<span class="mg">Актуально</span>';
+      behind.innerHTML = '<span style="display:inline-block;padding:.25em .8em;border:1px solid var(--green);border-radius:6px;color:var(--green);font-size:.65rem;letter-spacing:.15em">Актуально</span>';
     }
   } catch (e) { toast('Ошибка git: ' + e.message, 'fail'); }
 }
