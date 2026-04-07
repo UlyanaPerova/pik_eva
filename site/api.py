@@ -37,6 +37,7 @@ from config_manager import (
 )
 
 import yaml
+import autostart
 
 APT_DB = PROJECT_DIR / "data" / "apartments" / "apartments_history.db"
 STORE_DB = PROJECT_DIR / "data" / "history.db"
@@ -367,6 +368,76 @@ def api_git_pull():
         return {"status": "ok", "output": result.strip()}
     except subprocess.CalledProcessError as e:
         raise HTTPException(500, e.output.strip())
+
+
+# ══════════════════════════════════════
+#  LOGS
+# ══════════════════════════════════════
+
+@app.get("/api/logs")
+def api_logs():
+    """Получить последние логи из файлов в logs/."""
+    logs_dir = PROJECT_DIR / "logs"
+    lines = []
+    if logs_dir.exists():
+        log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for lf in log_files[:3]:  # последние 3 файла
+            try:
+                content = lf.read_text(encoding="utf-8", errors="replace")
+                file_lines = content.strip().split("\n")
+                # Берём последние 100 строк из каждого файла
+                lines.extend(file_lines[-100:])
+            except Exception:
+                pass
+    # Убираем пустые строки и технический мусор
+    clean = []
+    for line in lines[-200:]:
+        line = line.strip()
+        if not line:
+            continue
+        # Упрощаем вывод
+        line = line.replace("INFO:root:", "").replace("WARNING:root:", "Предупреждение: ")
+        line = line.replace("ERROR:root:", "Ошибка: ")
+        clean.append(line)
+    return {"logs": clean}
+
+
+# ══════════════════════════════════════
+#  AUTOSTART
+# ══════════════════════════════════════
+
+@app.get("/api/autostart")
+def api_autostart_status():
+    return autostart.get_status()
+
+
+class AutostartConfig(BaseModel):
+    enabled: bool | None = None
+    run_after_hour: int | None = None
+    developers: list[str] | None = None
+    types: list[str] | None = None
+
+
+@app.post("/api/autostart/toggle")
+def api_autostart_toggle(req: AutostartConfig):
+    cfg = autostart.get_config()
+    if req.run_after_hour is not None:
+        cfg["run_after_hour"] = req.run_after_hour
+    if req.developers is not None:
+        cfg["developers"] = req.developers
+    if req.types is not None:
+        cfg["types"] = req.types
+
+    cfg["enabled"] = bool(req.enabled)
+    autostart.save_config(cfg)
+
+    if autostart.is_supported():
+        if req.enabled:
+            autostart.enable(cfg)
+        else:
+            autostart.disable()
+
+    return autostart.get_status()
 
 
 # ══════════════════════════════════════
