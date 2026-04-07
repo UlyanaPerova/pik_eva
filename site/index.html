@@ -29,6 +29,7 @@ nav{width:52px;min-height:100vh;background:var(--ink);display:flex;flex-directio
 nav:hover{width:72px}
 nav .logo{font-family:var(--font-display);font-size:.7rem;color:var(--yellow);margin-bottom:2rem;writing-mode:vertical-lr;letter-spacing:.15em}
 nav button{width:44px;height:44px;border:none;background:transparent;color:rgba(255,255,255,.35);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:all .2s;font-size:1.1rem;position:relative}
+nav button svg{stroke-width:1.2}
 nav button:hover{color:#fff;background:rgba(255,255,255,.08)}
 nav button.active{color:var(--yellow);background:rgba(255,204,0,.1)}
 nav button.active::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--yellow);border-radius:0 2px 2px 0}
@@ -42,7 +43,7 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 
 /* ─── PAGE HEADER ─── */
 .page-head{margin-bottom:1.8rem;position:relative}
-.page-head__en{font-family:var(--font-thin);font-weight:100;font-size:.55rem;letter-spacing:.6em;text-transform:uppercase;color:rgba(17,17,17,.2);margin-bottom:.8rem}
+.page-head__en{font-family:var(--font-thin);font-weight:300;font-size:.6rem;letter-spacing:.4em;text-transform:uppercase;color:rgba(17,17,17,.3);margin-bottom:.8rem}
 .page-head__title{font-family:var(--font-display);font-size:clamp(2.5rem,6vw,4.5rem);line-height:.85;letter-spacing:-.03em}
 .page-head__sub{font-family:var(--font-body);font-weight:300;font-size:.85rem;color:rgba(17,17,17,.45);margin-top:1rem;max-width:400px;line-height:1.6}
 .page-head__line{position:absolute;bottom:-1rem;left:0;width:60px;height:3px;background:var(--yellow)}
@@ -78,8 +79,8 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 .btn--outline{background:transparent;color:var(--ink);border:1px solid rgba(17,17,17,.15)}
 .btn--outline:hover{border-color:var(--ink);background:rgba(17,17,17,.03)}
 .btn--sm{padding:.5rem 1rem;font-size:.6rem;letter-spacing:.2em}
-.btn--danger{background:rgba(17,17,17,.1);color:rgba(17,17,17,.3)}
-.btn--danger:hover{background:var(--red);color:#fff}
+.btn--danger{background:transparent;color:rgba(17,17,17,.3);border:1px solid rgba(17,17,17,.15);font-size:.6rem;letter-spacing:.2em}
+.btn--danger:hover{border-color:var(--red);color:var(--red);background:rgba(255,51,51,.05)}
 
 /* ─── LOG ─── */
 .log-box{background:var(--ink);border-radius:10px;padding:1.5rem;max-height:400px;overflow-y:auto;margin-top:1.5rem;font-family:var(--font-thin);font-size:.75rem;line-height:1.8;color:rgba(255,255,255,.5)}
