@@ -108,8 +108,14 @@ class CdpBrowser:
         else:
             context = await self._browser.new_context()
 
-        self.page = await context.new_page()
-        log.info("CDP подключён, page создан")
+        # Используем существующую вкладку если есть (антибот блокирует new_page)
+        # Если нет открытых вкладок — создаём новую
+        if context.pages:
+            self.page = context.pages[0]
+            log.info("CDP подключён, используем существующую вкладку (%s)", self.page.url[:60])
+        else:
+            self.page = await context.new_page()
+            log.info("CDP подключён, создана новая вкладка")
 
     # ── Навигация с детектом капчи ───────────────────────
 
@@ -206,12 +212,9 @@ class CdpBrowser:
     # ── Завершение ───────────────────────────────────────
 
     async def close(self) -> None:
-        """Закрыть page (не сам браузер — он пользовательский)."""
-        if self.page:
-            try:
-                await self.page.close()
-            except Exception:
-                pass
+        """Отключиться от браузера (не закрываем вкладку — она пользовательская)."""
+        # Не закрываем page — это может быть существующая вкладка пользователя
+        self.page = None
         if self._playwright:
             await self._playwright.stop()
 
