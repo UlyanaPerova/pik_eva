@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -332,14 +333,15 @@ async def api_generate_eva():
 @app.get("/api/git/status")
 def api_git_status():
     try:
+        env = {**os.environ, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "PYTHONIOENCODING": "utf-8"}
         branch = subprocess.check_output(
             ["git", "branch", "--show-current"],
-            cwd=str(PROJECT_DIR), text=True,
-        ).strip()
+            cwd=str(PROJECT_DIR), env=env,
+        ).decode("utf-8", errors="replace").strip()
         commit = subprocess.check_output(
             ["git", "log", "-1", "--format=%h %s"],
-            cwd=str(PROJECT_DIR), text=True,
-        ).strip()
+            cwd=str(PROJECT_DIR), env=env,
+        ).decode("utf-8", errors="replace").strip()
         # Fetch latest from remote to check for updates
         subprocess.run(
             ["git", "fetch"],
@@ -361,13 +363,14 @@ def api_git_status():
 @app.post("/api/git/pull")
 def api_git_pull():
     try:
+        env = {**os.environ, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "PYTHONIOENCODING": "utf-8"}
         result = subprocess.check_output(
             ["git", "pull", "--ff-only"],
-            cwd=str(PROJECT_DIR), text=True, stderr=subprocess.STDOUT,
-        )
+            cwd=str(PROJECT_DIR), env=env, stderr=subprocess.STDOUT,
+        ).decode("utf-8", errors="replace")
         return {"status": "ok", "output": result.strip()}
     except subprocess.CalledProcessError as e:
-        raise HTTPException(500, e.output.strip())
+        raise HTTPException(500, e.output.decode("utf-8", errors="replace").strip())
 
 
 # ══════════════════════════════════════
