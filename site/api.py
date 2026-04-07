@@ -340,10 +340,10 @@ def api_git_status():
             ["git", "log", "-1", "--format=%h %s"],
             cwd=str(PROJECT_DIR), text=True,
         ).strip()
-        # Check if behind remote
+        # Fetch latest from remote to check for updates
         subprocess.run(
-            ["git", "fetch", "--dry-run"],
-            cwd=str(PROJECT_DIR), capture_output=True, timeout=10,
+            ["git", "fetch"],
+            cwd=str(PROJECT_DIR), capture_output=True, timeout=15,
         )
         behind = subprocess.check_output(
             ["git", "rev-list", "--count", f"{branch}..origin/{branch}"],
