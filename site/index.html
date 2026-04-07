@@ -102,6 +102,7 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
 /* ─── BUTTONS ─── */
 .btn{display:inline-flex;align-items:center;gap:.8rem;padding:.8rem 1.8rem;background:var(--ink);color:#fff;font-family:var(--font-thin);font-weight:300;font-size:.65rem;letter-spacing:.3em;text-transform:uppercase;border:none;cursor:pointer;border-radius:6px;transition:all .2s}
 .btn:hover{background:var(--red)}
+.btn--run:hover{background:var(--green)}
 .btn:disabled{opacity:.3;cursor:not-allowed;background:var(--ink)}
 .btn--yellow{background:var(--yellow);color:var(--ink)}
 .btn--yellow:hover{background:#e6b800}
@@ -279,7 +280,7 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
   <div class="cards" id="collect-cards"></div>
 
   <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-top:1rem">
-    <button class="btn" id="btn-run" onclick="runTasks()">Запустить сбор</button>
+    <button class="btn btn--run" id="btn-run" onclick="runTasks()">Запустить сбор</button>
     <button class="btn btn--outline btn--sm" onclick="toggleAllChecks(true)">Выбрать все</button>
     <button class="btn btn--outline btn--sm" onclick="toggleAllChecks(false)">Снять все</button>
     <span id="collect-status" style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.35)"></span>
@@ -940,7 +941,7 @@ async function loadGit() {
     document.getElementById('git-commit').textContent = data.commit;
     const behind = document.getElementById('git-behind');
     if (data.behind > 0) {
-      behind.innerHTML = `<span class="mr">${data.behind}</span> коммитов позади origin`;
+      behind.innerHTML = `<span style="display:inline-block;padding:.25em .8em;border:1px solid var(--red);border-radius:6px;color:var(--red);font-size:.65rem;letter-spacing:.15em">${data.behind} коммитов позади</span>`;
     } else {
       behind.innerHTML = '<span style="display:inline-block;padding:.25em .8em;border:1px solid var(--green);border-radius:6px;color:var(--green);font-size:.65rem;letter-spacing:.15em">Актуально</span>';
     }
