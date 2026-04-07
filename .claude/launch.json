@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "eva-gui",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["site/api.py"],
+      "port": 8090
+    }
+  ]
+}

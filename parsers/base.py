@@ -117,6 +117,13 @@ def save_items(conn: sqlite3.Connection, items: list[StorehouseItem]) -> int:
 
         # Не пишем если цена не изменилась
         if row and row[0] == item.price and row[1] == item.price_per_meter:
+            # Но обновляем object_id если он появился
+            if item.object_id:
+                conn.execute(
+                    """UPDATE prices SET object_id = ?
+                       WHERE site = ? AND item_id = ? AND object_id IS NULL""",
+                    (item.object_id, item.site, item.item_id),
+                )
             continue
 
         conn.execute(

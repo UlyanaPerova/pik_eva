@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIK EVA — Оркестрант</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,600;0,700;1,100&family=Noto+Sans:wght@100;300;400;700;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#FFFFFF;--bg2:#F5F5F5;--ink:#111111;
+  --yellow:#FFCC00;--red:#FF3333;--green:#22C55E;
+  --font-display:'Dela Gothic One',sans-serif;
+  --font-body:'Noto Sans',sans-serif;
+  --font-thin:'IBM Plex Sans',sans-serif;
+}
+html{font-size:16px;overflow-x:hidden;zoom:1.3}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);-webkit-font-smoothing:antialiased;display:flex;min-height:100vh}
+
+/* ─── MARKER ─── */
+.m{background:linear-gradient(transparent 40%,var(--yellow) 40%,var(--yellow) 90%,transparent 90%);padding:0 .15em}
+.mr{background:linear-gradient(transparent 40%,var(--red) 40%,var(--red) 90%,transparent 90%);padding:0 .15em;color:#fff}
+.mg{background:linear-gradient(transparent 40%,var(--green) 40%,var(--green) 90%,transparent 90%);padding:0 .15em}
+
+/* ─── NAV SIDEBAR ─── */
+nav{width:52px;min-height:100vh;background:var(--ink);display:flex;flex-direction:column;align-items:center;padding:1.5rem 0;gap:.5rem;position:fixed;left:0;top:0;z-index:100;transition:width .5s cubic-bezier(.22,1,.36,1)}
+nav:hover{width:72px}
+nav .logo{font-family:var(--font-display);font-size:.7rem;color:var(--yellow);margin-bottom:2rem;writing-mode:vertical-lr;letter-spacing:.15em}
+nav button{width:44px;height:44px;border:none;background:transparent;color:rgba(255,255,255,.35);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:all .2s;font-size:1.1rem;position:relative}
+nav button:hover{color:#fff;background:rgba(255,255,255,.08)}
+nav button.active{color:var(--yellow);background:rgba(255,204,0,.1)}
+nav button.active::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--yellow);border-radius:0 2px 2px 0}
+nav .nav-label{position:absolute;left:50px;background:var(--ink);color:#fff;font-family:var(--font-thin);font-size:.6rem;letter-spacing:.15em;padding:4px 10px;border-radius:4px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .2s;text-transform:uppercase}
+nav button:hover .nav-label{opacity:1}
+
+/* ─── MAIN ─── */
+main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-bezier(.16,1,.3,1)}
+.page{display:none;padding:2rem 2.5rem;max-width:1100px;min-height:100vh}
+.page.active{display:block}
+
+/* ─── PAGE HEADER ─── */
+.page-head{margin-bottom:1.8rem;position:relative}
+.page-head__en{font-family:var(--font-thin);font-weight:100;font-size:.55rem;letter-spacing:.6em;text-transform:uppercase;color:rgba(17,17,17,.2);margin-bottom:.8rem}
+.page-head__title{font-family:var(--font-display);font-size:clamp(2.5rem,6vw,4.5rem);line-height:.85;letter-spacing:-.03em}
+.page-head__sub{font-family:var(--font-body);font-weight:300;font-size:.85rem;color:rgba(17,17,17,.45);margin-top:1rem;max-width:400px;line-height:1.6}
+.page-head__line{position:absolute;bottom:-1rem;left:0;width:60px;height:3px;background:var(--yellow)}
+
+/* ─── CARDS GRID ─── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-bottom:1.5rem}
+.card{background:var(--bg2);border:1px solid rgba(17,17,17,.04);border-radius:12px;padding:1.5rem;position:relative;transition:box-shadow .2s}
+.card:hover{box-shadow:0 8px 30px rgba(0,0,0,.06)}
+.card__header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem}
+.card__name{font-family:var(--font-display);font-size:1.1rem}
+.card__key{font-family:var(--font-thin);font-weight:200;font-size:.55rem;letter-spacing:.3em;text-transform:uppercase;color:rgba(17,17,17,.25)}
+.card__stats{display:flex;gap:1.5rem;margin-bottom:1rem}
+.card__stat{display:flex;flex-direction:column}
+.card__stat-num{font-family:var(--font-display);font-size:1.8rem;line-height:1}
+.card__stat-label{font-family:var(--font-thin);font-weight:300;font-size:.55rem;letter-spacing:.15em;text-transform:uppercase;color:rgba(17,17,17,.35);margin-top:.3rem}
+.card__date{font-family:var(--font-thin);font-weight:300;font-size:.65rem;color:rgba(17,17,17,.35)}
+.card__date .fresh{color:var(--green)}
+.card__date .stale{color:var(--red)}
+.card__date .aging{color:#F59E0B}
+.card__checks{display:flex;gap:.8rem;margin-top:1rem}
+
+/* ─── CHECKBOXES ─── */
+.check{display:flex;align-items:center;gap:.4rem;cursor:pointer;font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.5)}
+.check input{accent-color:var(--yellow);width:16px;height:16px;cursor:pointer}
+.check:has(input:checked){color:var(--ink)}
+
+/* ─── BUTTONS ─── */
+.btn{display:inline-flex;align-items:center;gap:.8rem;padding:.8rem 1.8rem;background:var(--ink);color:#fff;font-family:var(--font-thin);font-weight:300;font-size:.65rem;letter-spacing:.3em;text-transform:uppercase;border:none;cursor:pointer;border-radius:6px;transition:all .2s}
+.btn:hover{background:var(--red)}
+.btn:disabled{opacity:.3;cursor:not-allowed;background:var(--ink)}
+.btn--yellow{background:var(--yellow);color:var(--ink)}
+.btn--yellow:hover{background:#e6b800}
+.btn--outline{background:transparent;color:var(--ink);border:1px solid rgba(17,17,17,.15)}
+.btn--outline:hover{border-color:var(--ink);background:rgba(17,17,17,.03)}
+.btn--sm{padding:.5rem 1rem;font-size:.6rem;letter-spacing:.2em}
+.btn--danger{background:rgba(17,17,17,.1);color:rgba(17,17,17,.3)}
+.btn--danger:hover{background:var(--red);color:#fff}
+
+/* ─── LOG ─── */
+.log-box{background:var(--ink);border-radius:10px;padding:1.5rem;max-height:400px;overflow-y:auto;margin-top:1.5rem;font-family:var(--font-thin);font-size:.75rem;line-height:1.8;color:rgba(255,255,255,.5)}
+.log-box .ok{color:var(--green)}
+.log-box .fail{color:var(--red)}
+.log-box .info{color:var(--yellow)}
+.log-box::-webkit-scrollbar{width:4px}
+.log-box::-webkit-scrollbar-track{background:transparent}
+.log-box::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:4px}
+
+/* ─── TABLE ─── */
+.tbl{width:100%;border-collapse:collapse;margin-top:1rem}
+.tbl th{font-family:var(--font-thin);font-weight:400;font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:rgba(17,17,17,.35);text-align:left;padding:.6rem .8rem;border-bottom:1px solid rgba(17,17,17,.08)}
+.tbl td{font-family:var(--font-thin);font-weight:300;font-size:.8rem;padding:.6rem .8rem;border-bottom:1px solid rgba(17,17,17,.04)}
+.tbl tr:hover td{background:rgba(255,204,0,.04)}
+
+/* ─── FORM ─── */
+.form-row{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;align-items:flex-end}
+.form-group{display:flex;flex-direction:column;gap:.3rem}
+.form-group label{font-family:var(--font-thin);font-weight:300;font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;color:rgba(17,17,17,.4)}
+.form-group input,.form-group select{font-family:var(--font-thin);font-size:.8rem;padding:.5rem .8rem;border:1px solid rgba(17,17,17,.12);border-radius:6px;background:var(--bg);outline:none;transition:border-color .2s;width:100%}
+.form-group{min-width:120px}
+.form-group input:focus{border-color:var(--yellow)}
+.form-group input[type="number"]{-moz-appearance:textfield}
+.form-group input[type="number"]::-webkit-inner-spin-button,.form-group input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+
+/* ─── SCORING EDITOR ─── */
+.scoring-tabs{display:flex;gap:0;margin-bottom:1.2rem;border-bottom:1px solid rgba(17,17,17,.08);position:relative}
+.scoring-tabs__indicator{position:absolute;bottom:-1px;height:2px;background:var(--yellow);transition:left .35s cubic-bezier(.22,1,.36,1),width .35s cubic-bezier(.22,1,.36,1)}
+.scoring-tab{padding:.6rem 1.2rem;font-family:var(--font-thin);font-weight:400;font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;color:rgba(17,17,17,.5);cursor:pointer;border:none;background:none;position:relative;transition:color .2s}
+.scoring-tab.active{color:var(--ink)}
+.scoring-section{display:none}
+.scoring-section.active{display:block}
+.scoring-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 2.5rem;align-items:start}
+.scoring-grid>.scoring-section-title{grid-column:1/-1}
+.scoring-group{margin-bottom:1rem}
+.scoring-group__title{font-family:var(--font-display);font-size:.9rem;margin-bottom:.4rem}
+.scoring-group__desc{font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.55);margin-bottom:.5rem}
+.threshold-row{display:flex;gap:.5rem;align-items:center;margin-bottom:.3rem}
+.threshold-row input{width:80px;font-family:var(--font-thin);font-size:.75rem;padding:.3rem .5rem;border:1px solid rgba(17,17,17,.15);border-radius:4px;text-align:center;color:var(--ink)}
+.threshold-row span{font-family:var(--font-thin);font-weight:300;font-size:.65rem;color:rgba(17,17,17,.5);min-width:20px}
+
+/* ─── GIT PANEL ─── */
+.git-panel{background:var(--bg2);border-radius:12px;padding:2rem;margin-bottom:2rem}
+.git-panel__branch{font-family:var(--font-display);font-size:1.5rem;margin-bottom:.5rem}
+.git-panel__commit{font-family:var(--font-thin);font-weight:200;font-size:.75rem;color:rgba(17,17,17,.4)}
+.git-panel__behind{font-family:var(--font-thin);font-weight:300;font-size:.7rem;margin-top:.5rem}
+
+/* ─── STATUS DOT ─── */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.4rem}
+.dot--green{background:var(--green)}
+.dot--yellow{background:var(--yellow)}
+.dot--red{background:var(--red)}
+.dot--gray{background:rgba(17,17,17,.15)}
+
+/* ─── TOAST ─── */
+.toast{position:fixed;top:1.5rem;right:1.5rem;background:var(--ink);color:#fff;padding:1rem 1.5rem;border-radius:8px;font-family:var(--font-thin);font-size:.75rem;z-index:1000;transform:translateX(120%);transition:transform .3s cubic-bezier(.16,1,.3,1);max-width:400px}
+.toast.show{transform:translateX(0)}
+.toast.ok{border-left:3px solid var(--green)}
+.toast.fail{border-left:3px solid var(--red)}
+.toast.info{border-left:3px solid var(--yellow)}
+
+/* ─── SECTION COUNTER ─── */
+.section-num{font-family:var(--font-display);font-size:clamp(4rem,10vw,6rem);color:rgba(17,17,17,.03);position:absolute;right:0;top:-.5rem;line-height:1;pointer-events:none;user-select:none}
+
+/* ─── LOADING ─── */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── RESPONSIVE ─── */
+@media(max-width:768px){
+  nav{width:46px}
+  nav:hover{width:46px}
+  main{margin-left:46px}
+  .page{padding:1.5rem}
+  .cards{grid-template-columns:1fr}
+  .form-row{flex-direction:column}
+  .section-num{font-size:5rem}
+}
+
+/* ─── PHOTO CAROUSEL ─── */
+.photo-box{width:280px;height:320px;border-radius:16px;overflow:hidden;position:relative;background:var(--bg2)}
+.photo-box img{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;opacity:0;transition:opacity 1s ease}
+.photo-box img.active{opacity:1}
+
+/* ─── SCHEDULE PANEL ─── */
+.schedule-panel{background:var(--bg2);border:1px solid rgba(17,17,17,.04);border-radius:12px;padding:1.5rem;margin-top:2rem}
+.schedule-panel__title{font-family:var(--font-display);font-size:.9rem;margin-bottom:.5rem}
+.schedule-panel select{font-family:var(--font-thin);font-size:.8rem;padding:.4rem .8rem;border:1px solid rgba(17,17,17,.12);border-radius:6px;background:var(--bg);margin-right:.5rem}
+
+/* ─── SCORING SECTION MARKER ─── */
+.scoring-section-title{font-family:var(--font-display);font-size:1rem;margin:1.2rem 0 .6rem;padding:.2em .4em;display:inline-block;background:linear-gradient(transparent 40%,var(--yellow) 40%,var(--yellow) 90%,transparent 90%)}
+
+/* ─── TICKER / БЕГУЩАЯ СТРОКА ─── */
+.ticker{width:100%;overflow:hidden;background:var(--bg);padding:.55rem 0;border-radius:0;position:relative;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)}
+.ticker__track{display:inline-flex;white-space:nowrap;animation:tickerScroll 12s linear infinite}
+.ticker__text{font-family:var(--font-display);font-size:.75rem;color:var(--ink);letter-spacing:.2em;padding:0 2rem}
+.ticker__dot{color:var(--yellow);padding:0 1.5rem;font-size:.9rem;line-height:1}
+@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+
+/* ─── ANIMATIONS ─── */
+.fade-in{animation:fadeIn .5s both}
+@keyframes fadeIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<!-- ═══ NAV ═══ -->
+<nav>
+  <div class="logo">EVA</div>
+  <button class="active" data-page="pulse" title="Пульс">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 9h4l2-6 3 12 2-6h5"/></svg>
+    <span class="nav-label">Пульс</span>
+  </button>
+  <button data-page="collect" title="Сбор">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h12v12H3z"/><path d="M3 7h12M7 7v8"/></svg>
+    <span class="nav-label">Сбор</span>
+  </button>
+  <button data-page="scoring" title="Формулы">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l7 7m0 0l7 7M9 9l7-7M9 9L2 16"/></svg>
+    <span class="nav-label">Формулы</span>
+  </button>
+  <button data-page="links" title="Связи">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="3"/><circle cx="13" cy="13" r="3"/><path d="M7 7l4 4"/></svg>
+    <span class="nav-label">Связи</span>
+  </button>
+  <button data-page="update" title="Обновление">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 9a8 8 0 0114-5m2 5a8 8 0 01-14 5"/><path d="M15 4V1h3M3 14v3H0"/></svg>
+    <span class="nav-label">Обновление</span>
+  </button>
+</nav>
+
+<!-- ═══ PAGE: ПУЛЬС ═══ -->
+<main>
+<div class="page active" id="page-pulse">
+  <div class="page-head">
+    <div class="section-num">01</div>
+    <div class="page-head__en">Dashboard / System Pulse</div>
+    <h1 class="page-head__title">ПУЛЬС</h1>
+    <p class="page-head__sub">Состояние баз данных, застройщики, свежесть парсинга</p>
+    <div class="page-head__line"></div>
+  </div>
+
+  <div class="cards" id="pulse-cards">
+    <div class="card" style="opacity:.3"><div class="card__header"><span class="card__name">Загрузка...</span></div></div>
+  </div>
+
+  <div style="margin-top:2rem">
+    <div class="page-head__en" style="margin-bottom:.8rem">Config Summary</div>
+    <div id="pulse-config" style="font-family:var(--font-thin);font-weight:300;font-size:.8rem;color:rgba(17,17,17,.45)"></div>
+  </div>
+</div>
+
+<!-- ═══ PAGE: СБОР ═══ -->
+<div class="page" id="page-collect">
+  <div class="page-head">
+    <div class="section-num">02</div>
+    <div class="page-head__en">Data Collection / Parse Control</div>
+    <h1 class="page-head__title">СБОР</h1>
+    <p class="page-head__sub">Выберите застройщиков и запустите парсинг</p>
+    <div class="page-head__line"></div>
+  </div>
+
+  <div class="cards" id="collect-cards"></div>
+
+  <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-top:1rem">
+    <button class="btn" id="btn-run" onclick="runTasks()">Запустить сбор</button>
+    <button class="btn btn--outline btn--sm" onclick="toggleAllChecks(true)">Выбрать все</button>
+    <button class="btn btn--outline btn--sm" onclick="toggleAllChecks(false)">Снять все</button>
+    <span id="collect-status" style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.35)"></span>
+  </div>
+
+  <div class="log-box" id="collect-log" style="display:none"></div>
+
+  <div class="schedule-panel">
+    <div class="schedule-panel__title">Автосбор</div>
+    <div style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.4);margin-bottom:.8rem">Периодичность автоматического сбора данных</div>
+    <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap">
+      <select id="schedule-interval">
+        <option value="off">Выключено</option>
+        <option value="6h">Каждые 6 часов</option>
+        <option value="12h">Каждые 12 часов</option>
+        <option value="24h">Раз в сутки</option>
+        <option value="48h">Раз в 2 дня</option>
+        <option value="weekly">Раз в неделю</option>
+      </select>
+      <span style="font-family:var(--font-thin);font-weight:200;font-size:.6rem;color:rgba(17,17,17,.25);letter-spacing:.15em;text-transform:uppercase">скоро</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PAGE: ФОРМУЛЫ ═══ -->
+<div class="page" id="page-scoring">
+  <div class="page-head">
+    <div class="section-num">03</div>
+    <div class="page-head__en">Scoring Rules / EVA Formula Editor</div>
+    <h1 class="page-head__title">ФОРМУЛА</h1>
+    <p class="page-head__sub">Пороги, баллы, алиасы для расчета EVA</p>
+    <div class="page-head__line"></div>
+  </div>
+
+  <div class="scoring-tabs">
+    <button class="scoring-tab active" data-stab="stage1">Первый этап</button>
+    <button class="scoring-tab" data-stab="stage2">Второй этап</button>
+    <button class="scoring-tab" data-stab="aliases">Алиасы</button>
+    <div class="scoring-tabs__indicator"></div>
+  </div>
+
+  <div class="scoring-section active" id="stab-stage1">
+    <div id="scoring-stage1"></div>
+  </div>
+  <div class="scoring-section" id="stab-stage2">
+    <div id="scoring-stage2"></div>
+  </div>
+  <div class="scoring-section" id="stab-aliases">
+    <div id="scoring-aliases"></div>
+  </div>
+
+  <div style="margin-top:2rem;display:flex;gap:1rem">
+    <button class="btn btn--yellow" onclick="saveScoring()">Сохранить формулы</button>
+    <button class="btn btn--outline" onclick="resetScoring()">Сбросить</button>
+  </div>
+</div>
+
+<!-- ═══ PAGE: СВЯЗИ ═══ -->
+<div class="page" id="page-links">
+  <div class="page-head">
+    <div class="section-num">04</div>
+    <div class="page-head__en">DOM.RF Links / Configuration</div>
+    <h1 class="page-head__title">СВЯЗИ</h1>
+    <p class="page-head__sub">Управление ссылками ДОМ.РФ — добавление и удаление объектов</p>
+    <div class="page-head__line"></div>
+  </div>
+
+  <div style="margin-bottom:2rem">
+    <div class="ticker" style="margin-bottom:1.2rem"><div class="ticker__track"><span class="ticker__text">ДОБАВИТЬ ССЫЛКУ</span><span class="ticker__dot">&bull;</span><span class="ticker__text">OBJECT ID + ЖК + КОРПУС</span><span class="ticker__dot">&bull;</span><span class="ticker__text">ДОМ.РФ</span><span class="ticker__dot">&bull;</span><span class="ticker__text">ДОБАВИТЬ ССЫЛКУ</span><span class="ticker__dot">&bull;</span><span class="ticker__text">OBJECT ID + ЖК + КОРПУС</span><span class="ticker__dot">&bull;</span><span class="ticker__text">ДОМ.РФ</span><span class="ticker__dot">&bull;</span></div></div>
+    <div style="display:flex;gap:2rem;align-items:flex-start;flex-wrap:wrap">
+    <div class="photo-box" id="photo-carousel">
+      <img src="/photos/avtory_na_godovikova.jpeg" class="active">
+      <img src="/photos/botanicheskaya_3.jpeg">
+      <img src="/photos/q_na_kulagina.jpeg">
+      <img src="/photos/statum.jpeg">
+      <img src="/photos/yanalif.png">
+    </div>
+    <div style="flex:1;min-width:250px">
+      <div style="display:flex;flex-direction:column;gap:.8rem;max-width:320px">
+        <div class="form-group"><label>Object ID</label><input type="number" id="link-oid" placeholder="12345"></div>
+        <div class="form-group"><label>ЖК</label><input type="text" id="link-complex" placeholder="Мой Ритм"></div>
+        <div class="form-group"><label>Корпус</label><input type="text" id="link-building" placeholder="М1/ПК-1"></div>
+        <div class="form-group"><label>Застройщик</label><input type="text" id="link-developer" placeholder="Ак Барс Дом"></div>
+        <div class="form-group"><label>Город</label><input type="text" id="link-city" value="Казань"></div>
+        <button class="btn btn--sm" onclick="addLink()">Добавить</button>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:1rem;margin-bottom:1rem">
+    <button class="btn btn--outline btn--sm" onclick="syncLinks()">Синхронизировать конфиги</button>
+    <span id="links-count" style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.35)"></span>
+  </div>
+
+  <div style="overflow-x:auto">
+  <table class="tbl" style="min-width:700px">
+    <thead><tr><th style="width:65px">ID</th><th style="width:140px">ЖК</th><th style="width:65px">Корпус</th><th style="width:120px">Застройщик</th><th style="width:60px">Город</th><th style="width:75px;text-align:center">Квартиры</th><th style="width:75px;text-align:center">Кладовки</th><th style="width:32px"></th></tr></thead>
+    <tbody id="links-tbody"></tbody>
+  </table>
+  </div>
+</div>
+
+<!-- ═══ PAGE: ОБНОВЛЕНИЕ ═══ -->
+<div class="page" id="page-update">
+  <div class="page-head">
+    <div class="section-num">05</div>
+    <div class="page-head__en">System Update / Git + EVA Generation</div>
+    <h1 class="page-head__title">ОБНОВЛЕНИЕ</h1>
+    <p class="page-head__sub">Получить свежий код и собрать расчет EVA</p>
+    <div class="page-head__line"></div>
+  </div>
+
+  <div class="git-panel" id="git-panel">
+    <div class="page-head__en" style="margin-bottom:.5rem">Git Repository</div>
+    <div class="git-panel__branch" id="git-branch">...</div>
+    <div class="git-panel__commit" id="git-commit">загрузка...</div>
+    <div class="git-panel__behind" id="git-behind"></div>
+    <div style="margin-top:1.2rem;display:flex;gap:1rem">
+      <button class="btn btn--sm" onclick="gitPull()">Git Pull</button>
+      <button class="btn btn--outline btn--sm" onclick="loadGit()">Обновить статус</button>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem">
+    <div class="page-head__en" style="margin-bottom:.8rem">EVA Generation</div>
+    <p style="font-family:var(--font-thin);font-weight:300;font-size:.8rem;color:rgba(17,17,17,.45);margin-bottom:1rem">
+      Собрать сводный файл расчет_ева.xlsx на основе текущих баз данных
+    </p>
+    <button class="btn btn--yellow" onclick="generateEva()">Собрать расчет EVA</button>
+  </div>
+
+  <div class="log-box" id="update-log" style="display:none"></div>
+</div>
+</main>
+
+<!-- ═══ TOAST ═══ -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+
+// ── Navigation ──
+function navigateTo(pg) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector(`nav button[data-page="${pg}"]`);
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById('page-' + pg);
+  if (page) { page.classList.add('active'); page.classList.add('fade-in'); }
+  window.scrollTo(0, 0);
+  if (pg === 'pulse') loadPulse();
+  else if (pg === 'collect') loadCollect();
+  else if (pg === 'scoring') loadScoring();
+  else if (pg === 'links') loadLinks();
+  else if (pg === 'update') loadGit();
+}
+document.querySelectorAll('nav button[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => navigateTo(btn.dataset.page));
+});
+
+// ── Toast ──
+function toast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type + ' show';
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ── API helpers ──
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  return res.json();
+}
+
+// ══════════════════════════════════════
+//  PULSE
+// ══════════════════════════════════════
+async function loadPulse() {
+  try {
+    const data = await api('/api/status');
+    const container = document.getElementById('pulse-cards');
+    container.innerHTML = data.developers.map(dev => {
+      const storeCount = dev.storehouses?.count || 0;
+      const aptCount = dev.apartments?.count || 0;
+      const storeDate = dev.storehouses?.last_parsed;
+      const aptDate = dev.apartments?.last_parsed;
+      return `
+        <div class="card fade-in">
+          <div class="card__header">
+            <span class="card__name">${dev.label}</span>
+            <span class="card__key">${dev.key}</span>
+          </div>
+          <div class="card__stats">
+            <div class="card__stat">
+              <span class="card__stat-num ${storeCount ? 'm' : ''}">${storeCount}</span>
+              <span class="card__stat-label">Кладовки</span>
+            </div>
+            <div class="card__stat">
+              <span class="card__stat-num ${aptCount ? 'm' : ''}">${aptCount}</span>
+              <span class="card__stat-label">Квартиры</span>
+            </div>
+          </div>
+          <div class="card__date">
+            ${storeDate ? '<span class="dot ' + freshness(storeDate) + '"></span>Кладовки: ' + fmtDate(storeDate) : '<span class="dot dot--gray"></span>Кладовки: нет данных'}
+          </div>
+          <div class="card__date" style="margin-top:.3rem">
+            ${aptDate ? '<span class="dot ' + freshness(aptDate) + '"></span>Квартиры: ' + fmtDate(aptDate) : '<span class="dot dot--gray"></span>Квартиры: нет данных'}
+          </div>
+        </div>`;
+    }).join('');
+
+    document.getElementById('pulse-config').innerHTML =
+      `Ссылки ДОМ.РФ: <span class="m">${data.config.apartments_links}</span> квартиры, <span class="m">${data.config.storehouses_links}</span> кладовки` +
+      `<br>БД: ${data.db.apartments_exists ? '<span class="dot dot--green"></span>квартиры' : '<span class="dot dot--red"></span>квартиры'} ${data.db.storehouses_exists ? '<span class="dot dot--green"></span>кладовки' : '<span class="dot dot--red"></span>кладовки'}`;
+  } catch (e) { toast('Ошибка загрузки: ' + e.message, 'fail'); }
+}
+
+function freshness(dateStr) {
+  if (!dateStr) return 'dot--gray';
+  const d = new Date(dateStr);
+  const days = (Date.now() - d.getTime()) / 86400000;
+  if (days < 3) return 'dot--green';
+  if (days < 7) return 'dot--yellow';
+  return 'dot--red';
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// ══════════════════════════════════════
+//  COLLECT
+// ══════════════════════════════════════
+const ALL_DEVS = [
+  { key: 'pik', label: 'ПИК' },
+  { key: 'glorax', label: 'GloraX' },
+  { key: 'smu88', label: 'СМУ-88' },
+  { key: 'akbarsdom', label: 'Ак Барс Дом' },
+  { key: 'unistroy', label: 'УниСтрой' },
+  { key: 'domrf', label: 'ДОМ.РФ' },
+];
+
+function loadCollect() {
+  const c = document.getElementById('collect-cards');
+  if (c.children.length > 0) return; // already loaded
+  c.innerHTML = ALL_DEVS.map(dev => `
+    <div class="card">
+      <div class="card__header">
+        <span class="card__name">${dev.label}</span>
+        <span class="card__key">${dev.key}</span>
+      </div>
+      <div class="card__checks">
+        <label class="check"><input type="checkbox" data-type="store" data-key="${dev.key}" checked> Кладовки</label>
+        <label class="check"><input type="checkbox" data-type="apt" data-key="${dev.key}" checked> Квартиры</label>
+      </div>
+    </div>`).join('');
+}
+
+function toggleAllChecks(val) {
+  document.querySelectorAll('#collect-cards input[type=checkbox]').forEach(cb => cb.checked = val);
+}
+
+async function runTasks() {
+  const checks = document.querySelectorAll('#collect-cards input:checked');
+  const tasks = Array.from(checks).map(cb => ({ type: cb.dataset.type, key: cb.dataset.key }));
+  if (!tasks.length) { toast('Ничего не выбрано', 'info'); return; }
+
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Выполняется...';
+  document.getElementById('collect-status').textContent = `Запущено ${tasks.length} задач...`;
+
+  const logBox = document.getElementById('collect-log');
+  logBox.style.display = 'block';
+  logBox.innerHTML = '';
+
+  try {
+    await api('/api/tasks/run', { method: 'POST', body: JSON.stringify({ tasks }) });
+    // SSE stream
+    const evtSource = new EventSource(API + '/api/tasks/stream');
+    evtSource.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.text === '__DONE__') {
+        evtSource.close();
+        btn.disabled = false;
+        btn.innerHTML = 'Запустить сбор';
+        document.getElementById('collect-status').textContent = 'Завершено';
+        toast('Сбор данных завершен', 'ok');
+        loadPulse(); // refresh pulse
+        return;
+      }
+      const cls = data.tag || 'info';
+      logBox.innerHTML += `<div class="${cls}">${escHtml(data.text)}</div>`;
+      logBox.scrollTop = logBox.scrollHeight;
+    };
+    evtSource.onerror = () => {
+      evtSource.close();
+      btn.disabled = false;
+      btn.innerHTML = 'Запустить сбор';
+    };
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'fail');
+    btn.disabled = false;
+    btn.innerHTML = 'Запустить сбор';
+  }
+}
+
+// ══════════════════════════════════════
+//  SCORING
+// ══════════════════════════════════════
+let scoringData = null;
+
+// Scoring tabs with sliding indicator
+function moveTabIndicator(tab) {
+  const indicator = document.querySelector('.scoring-tabs__indicator');
+  if (!indicator || !tab) return;
+  indicator.style.left = tab.offsetLeft + 'px';
+  indicator.style.width = tab.offsetWidth + 'px';
+}
+document.querySelectorAll('.scoring-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.scoring-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.scoring-section').forEach(s => s.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('stab-' + tab.dataset.stab).classList.add('active');
+    moveTabIndicator(tab);
+  });
+});
+// Init indicator position
+requestAnimationFrame(() => moveTabIndicator(document.querySelector('.scoring-tab.active')));
+
+async function loadScoring() {
+  try {
+    scoringData = await api('/api/scoring');
+    renderStage1(scoringData.scoring || {});
+    renderStage2(scoringData.scoring?.second_stage || {});
+    renderAliases(scoringData.complex_aliases || {}, scoringData.building_aliases || {});
+  } catch (e) { toast('Ошибка загрузки формул: ' + e.message, 'fail'); }
+}
+
+function renderThresholdGroup(title, desc, key, items) {
+  if (!items || !Array.isArray(items)) return '';
+  let html = `<div class="scoring-group"><div class="scoring-group__title">${title}</div>`;
+  if (desc) html += `<div class="scoring-group__desc">${desc}</div>`;
+  items.forEach((item, i) => {
+    html += `<div class="threshold-row">
+      <span>до</span>
+      <input type="number" value="${item.max}" data-field="${key}" data-idx="${i}" data-prop="max">
+      <span>&rarr;</span>
+      <input type="number" value="${item.points}" data-field="${key}" data-idx="${i}" data-prop="points">
+      <span>баллов</span>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderStage1(scoring) {
+  const el = document.getElementById('scoring-stage1');
+  let html = '<div class="scoring-grid">';
+  const groups = [
+    ['Срок ввода (мес)', 'Баллы за срок сдачи объекта', 'deadline_months'],
+    ['Квартиры / кладовые', 'Соотношение количества', 'apartment_storehouse_ratio'],
+    ['Цена м2 квартир / кладовых', 'Соотношение цен', 'price_ratio'],
+    ['Площадь кладовки (м2)', 'Баллы за площадь', 'storehouse_area'],
+    ['Стоимость кладовки (руб)', 'Баллы за стоимость', 'storehouse_price'],
+    ['Цена кладовки за м2', 'Баллы за цену/м2', 'storehouse_ppm'],
+    ['Балконы (ratio)', 'Соотношение квартир/балконов', 'balcony_ratio'],
+  ];
+  groups.forEach(([t, d, k]) => {
+    if (scoring[k] && Array.isArray(scoring[k])) {
+      html += renderThresholdGroup(t, d, k, scoring[k]);
+    }
+  });
+  // Kvartirografia with marker title
+  const kvartNames = {studio_1k:'Студии + 1к',two_k:'2-комнатные',three_4k:'3к + 4к'};
+  if (scoring.kvartirografia) {
+    html += '<div class="scoring-section-title">Квартирография</div>';
+    html += '<div class="scoring-group">';
+    for (const [sub, items] of Object.entries(scoring.kvartirografia)) {
+      html += renderThresholdGroup(kvartNames[sub]||sub, '% от общего количества квартир', 'kvartirografia.' + sub, items);
+    }
+    html += '</div>';
+  }
+  // Avg area
+  const areaNames = {studio:'Студия',one_k:'1-комнатная',two_k:'2-комнатная',three_k:'3-комнатная',four_k:'4-комнатная'};
+  if (scoring.avg_area) {
+    html += '<div class="scoring-section-title">Средняя площадь</div>';
+    html += '<div class="scoring-group">';
+    for (const [sub, items] of Object.entries(scoring.avg_area)) {
+      html += renderThresholdGroup(areaNames[sub]||sub, 'м2', 'avg_area.' + sub, items);
+    }
+    html += '</div>';
+  }
+  // Avg non-living area
+  if (scoring.avg_non_living) {
+    html += '<div class="scoring-section-title">Средняя нежилая площадь</div>';
+    html += '<div class="scoring-group">';
+    for (const [sub, items] of Object.entries(scoring.avg_non_living)) {
+      html += renderThresholdGroup(areaNames[sub]||sub, 'м2', 'avg_non_living.' + sub, items);
+    }
+    html += '</div>';
+  }
+  html += '</div>'; // close scoring-grid
+  el.innerHTML = html;
+}
+
+function renderStage2(s2) {
+  const el = document.getElementById('scoring-stage2');
+  if (!s2 || !Object.keys(s2).length) { el.innerHTML = '<p style="color:rgba(17,17,17,.3)">Нет данных второго этапа</p>'; return; }
+  const s2Names = {
+    area_min:'Мин. площадь (м2)',area_good:'Оптим. площадь (м2)',area_good_pts:'Баллы за оптим. площадь',
+    area_penalty:'Штраф за малую площадь',area_decay_per_m2:'Снижение за каждый м2 сверх',
+    price_max:'Потолок стоимости (руб)',price_max_pts:'Баллы при стоимости 0',
+    price_penalty_threshold:'Порог штрафа стоимости',price_penalty:'Штраф за высокую стоимость',
+    ppm_max:'Потолок цены/м2',ppm_max_pts:'Баллы при цене/м2 = 0',ppm_range:'Диапазон нормировки',
+    ratio_pivot:'Точка перелома ratio',ratio_penalty_mult:'Множитель штрафа',ratio_bonus_mult:'Множитель бонуса',
+  };
+  const entries = Object.entries(s2);
+  const half = Math.ceil(entries.length / 2);
+  let html = '<div class="scoring-grid">';
+  // Left column
+  html += '<div class="scoring-group"><div class="scoring-group__title">Площадь и стоимость</div>';
+  for (const [key, val] of entries.slice(0, half)) {
+    html += `<div class="threshold-row">
+      <span style="min-width:180px;text-align:right;font-size:.65rem">${s2Names[key]||key}</span>
+      <input type="number" value="${val}" data-s2="${key}" step="any">
+    </div>`;
+  }
+  html += '</div>';
+  // Right column
+  html += '<div class="scoring-group"><div class="scoring-group__title">Цена и ratio</div>';
+  for (const [key, val] of entries.slice(half)) {
+    html += `<div class="threshold-row">
+      <span style="min-width:180px;text-align:right;font-size:.65rem">${s2Names[key]||key}</span>
+      <input type="number" value="${val}" data-s2="${key}" step="any">
+    </div>`;
+  }
+  html += '</div></div>'; // close group + grid
+  el.innerHTML = html;
+}
+
+function renderAliases(complex, building) {
+  const el = document.getElementById('scoring-aliases');
+  let html = '<div class="scoring-grid"><div class="scoring-group"><div class="scoring-group__title">Алиасы ЖК</div>';
+  html += '<div class="scoring-group__desc">Маппинг названий ЖК: застройщик &rarr; ДОМ.РФ (каноническое)</div>';
+  for (const [from, to] of Object.entries(complex)) {
+    html += `<div class="threshold-row"><input value="${from}" data-calias-from="${from}" style="width:200px"><span>&rarr;</span><input value="${to}" data-calias-to="${from}" style="width:200px"><button class="btn btn--danger btn--sm" onclick="this.parentElement.remove()" style="padding:.2rem .5rem">x</button></div>`;
+  }
+  html += `<button class="btn btn--outline btn--sm" onclick="addComplexAlias()" style="margin-top:.5rem">+ Добавить алиас ЖК</button>`;
+  html += '</div>';
+
+  html += '<div class="scoring-group"><div class="scoring-group__title">Алиасы корпусов</div>';
+  html += '<div class="scoring-group__desc">По ЖК: паттерн_застройщика &rarr; корпус_ДОМ.РФ</div>';
+  for (const [complex_name, mappings] of Object.entries(building)) {
+    html += `<div style="margin-bottom:1rem" data-bcomplex="${complex_name}"><div style="font-family:var(--font-display);font-size:.85rem;margin-bottom:.5rem">${complex_name}</div>`;
+    for (const [from, to] of Object.entries(mappings)) {
+      html += `<div class="threshold-row"><input value="${from}" data-balias-from="${complex_name}" style="width:200px"><span>&rarr;</span><input value="${to}" data-balias-to="${complex_name}" style="width:150px"><button class="btn btn--danger btn--sm" onclick="this.parentElement.remove()" style="padding:.2rem .5rem">x</button></div>`;
+    }
+    html += `<button class="btn btn--outline btn--sm" onclick="addBuildingAlias('${complex_name}')" style="margin-top:.3rem">+ Корпус</button>`;
+    html += '</div>';
+  }
+  html += `<button class="btn btn--outline btn--sm" onclick="addBuildingGroup()" style="margin-top:.5rem">+ Добавить ЖК для алиасов корпусов</button>`;
+  html += '</div></div>'; // close group + grid
+  el.innerHTML = html;
+}
+
+function addComplexAlias() {
+  const container = document.querySelector('#scoring-aliases .scoring-group');
+  const btn = container.querySelector('button[onclick="addComplexAlias()"]');
+  const row = document.createElement('div');
+  row.className = 'threshold-row';
+  row.innerHTML = '<input placeholder="Имя застройщика" data-calias-from="__new__" style="width:200px"><span>&rarr;</span><input placeholder="Имя ДОМ.РФ" data-calias-to="__new__" style="width:200px"><button class="btn btn--danger btn--sm" onclick="this.parentElement.remove()" style="padding:.2rem .5rem">x</button>';
+  container.insertBefore(row, btn);
+}
+
+function addBuildingAlias(complexName) {
+  const container = document.querySelector(`[data-bcomplex="${complexName}"]`);
+  const btn = container.querySelector('button');
+  const row = document.createElement('div');
+  row.className = 'threshold-row';
+  row.innerHTML = `<input placeholder="Паттерн" data-balias-from="${complexName}" style="width:200px"><span>&rarr;</span><input placeholder="Корпус" data-balias-to="${complexName}" style="width:150px"><button class="btn btn--danger btn--sm" onclick="this.parentElement.remove()" style="padding:.2rem .5rem">x</button>`;
+  container.insertBefore(row, btn);
+}
+
+function addBuildingGroup() {
+  const name = prompt('Название ЖК:');
+  if (!name) return;
+  const section = document.querySelectorAll('#scoring-aliases .scoring-group')[1];
+  const addBtn = section.querySelector('button[onclick="addBuildingGroup()"]');
+  const div = document.createElement('div');
+  div.style.marginBottom = '1rem';
+  div.dataset.bcomplex = name;
+  div.innerHTML = `<div style="font-family:var(--font-display);font-size:.85rem;margin-bottom:.5rem">${name}</div><button class="btn btn--outline btn--sm" onclick="addBuildingAlias('${name}')" style="margin-top:.3rem">+ Корпус</button>`;
+  section.insertBefore(div, addBtn);
+}
+
+async function saveScoring() {
+  if (!scoringData) { toast('Сначала загрузите данные', 'info'); return; }
+  const scoring = scoringData.scoring || {};
+
+  // Collect threshold changes
+  document.querySelectorAll('[data-field]').forEach(inp => {
+    const path = inp.dataset.field;
+    const idx = parseInt(inp.dataset.idx);
+    const prop = inp.dataset.prop;
+    const val = parseFloat(inp.value);
+    if (path.includes('.')) {
+      const [a, b] = path.split('.');
+      if (scoring[a] && scoring[a][b] && scoring[a][b][idx]) {
+        scoring[a][b][idx][prop] = val;
+      }
+    } else {
+      if (scoring[path] && scoring[path][idx]) {
+        scoring[path][idx][prop] = val;
+      }
+    }
+  });
+
+  // Stage 2
+  document.querySelectorAll('[data-s2]').forEach(inp => {
+    const key = inp.dataset.s2;
+    if (!scoring.second_stage) scoring.second_stage = {};
+    scoring.second_stage[key] = parseFloat(inp.value);
+  });
+
+  // Complex aliases
+  const complexAliases = {};
+  document.querySelectorAll('[data-calias-from]').forEach(inp => {
+    const fromVal = inp.value.trim();
+    const origFrom = inp.dataset.caliasFrom;
+    const toInp = document.querySelector(`[data-calias-to="${origFrom}"]`);
+    if (toInp && fromVal && toInp.value.trim()) complexAliases[fromVal] = toInp.value.trim();
+  });
+
+  // Building aliases
+  const buildingAliases = {};
+  document.querySelectorAll('[data-bcomplex]').forEach(div => {
+    const cn = div.dataset.bcomplex;
+    const froms = div.querySelectorAll('[data-balias-from]');
+    const mappings = {};
+    froms.forEach(inp => {
+      const f = inp.value.trim();
+      const t = inp.nextElementSibling?.nextElementSibling?.value?.trim();
+      if (f && t) mappings[f] = t;
+    });
+    if (Object.keys(mappings).length) buildingAliases[cn] = mappings;
+  });
+
+  try {
+    await api('/api/scoring', {
+      method: 'PUT',
+      body: JSON.stringify({ scoring, complex_aliases: complexAliases, building_aliases: buildingAliases }),
+    });
+    toast('Формулы сохранены', 'ok');
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+// ══════════════════════════════════════
+//  LINKS
+// ══════════════════════════════════════
+async function loadLinks() {
+  try {
+    const data = await api('/api/links');
+    const tbody = document.getElementById('links-tbody');
+    tbody.innerHTML = data.links.map(l => `
+      <tr>
+        <td><span class="m">${l.object_id}</span></td>
+        <td>${l.complex_name}</td>
+        <td>${l.building || '—'}</td>
+        <td>${l.developer || '—'}</td>
+        <td>${l.city}</td>
+        <td style="text-align:center"><span class="dot ${l.has_apt_data ? 'dot--green' : (l.in_apartments ? 'dot--red' : 'dot--gray')}" style="width:7px;height:7px"></span></td>
+        <td style="text-align:center"><span class="dot ${l.has_store_data ? 'dot--green' : (l.in_storehouses ? 'dot--red' : 'dot--gray')}" style="width:7px;height:7px"></span></td>
+        <td><button class="btn btn--danger btn--sm" onclick="removeLink(${l.object_id})">x</button></td>
+      </tr>`).join('');
+    document.getElementById('links-count').textContent = `${data.links.length} ссылок`;
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function addLink() {
+  const oid = parseInt(document.getElementById('link-oid').value);
+  const cn = document.getElementById('link-complex').value.trim();
+  if (!oid || !cn) { toast('Заполните Object ID и ЖК', 'info'); return; }
+  try {
+    await api('/api/links', {
+      method: 'POST',
+      body: JSON.stringify({
+        object_id: oid,
+        complex_name: cn,
+        building: document.getElementById('link-building').value.trim(),
+        developer: document.getElementById('link-developer').value.trim(),
+        city: document.getElementById('link-city').value.trim() || 'Казань',
+      }),
+    });
+    toast('Ссылка добавлена', 'ok');
+    document.getElementById('link-oid').value = '';
+    document.getElementById('link-complex').value = '';
+    document.getElementById('link-building').value = '';
+    loadLinks();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function removeLink(oid) {
+  if (!confirm(`Удалить ссылку ${oid}?`)) return;
+  try {
+    await api(`/api/links/${oid}`, { method: 'DELETE' });
+    toast('Ссылка удалена', 'ok');
+    loadLinks();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function syncLinks() {
+  try {
+    const data = await api('/api/links/sync', { method: 'POST' });
+    toast(`Синхронизировано: +${data.result.added_to_apartments} в квартиры, +${data.result.added_to_storehouses} в кладовки`, 'ok');
+    loadLinks();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+// ══════════════════════════════════════
+//  GIT + EVA
+// ══════════════════════════════════════
+async function loadGit() {
+  try {
+    const data = await api('/api/git/status');
+    document.getElementById('git-branch').textContent = data.branch;
+    document.getElementById('git-commit').textContent = data.commit;
+    const behind = document.getElementById('git-behind');
+    if (data.behind > 0) {
+      behind.innerHTML = `<span class="mr">${data.behind}</span> коммитов позади origin`;
+    } else {
+      behind.innerHTML = '<span class="mg">Актуально</span>';
+    }
+  } catch (e) { toast('Ошибка git: ' + e.message, 'fail'); }
+}
+
+async function gitPull() {
+  try {
+    const data = await api('/api/git/pull', { method: 'POST' });
+    toast('Git pull: ' + data.output, 'ok');
+    loadGit();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function generateEva() {
+  const logBox = document.getElementById('update-log');
+  logBox.style.display = 'block';
+  logBox.innerHTML = '<div class="info">Запуск генерации EVA...</div>';
+
+  try {
+    await api('/api/eva/generate', { method: 'POST' });
+    const evtSource = new EventSource(API + '/api/tasks/stream');
+    evtSource.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.text === '__DONE__') {
+        evtSource.close();
+        toast('Генерация EVA завершена', 'ok');
+        return;
+      }
+      logBox.innerHTML += `<div class="${data.tag || 'info'}">${escHtml(data.text)}</div>`;
+      logBox.scrollTop = logBox.scrollHeight;
+    };
+    evtSource.onerror = () => evtSource.close();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+// ── Utils ──
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Reset scoring to defaults ──
+async function resetScoring() {
+  if (!confirm('Сбросить формулы до заводских настроек? Текущие значения будут потеряны.')) return;
+  try {
+    await api('/api/scoring/reset', { method: 'POST' });
+    toast('Формулы сброшены до заводских', 'ok');
+    loadScoring();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+// ── Photo carousel ──
+(function() {
+  const box = document.getElementById('photo-carousel');
+  if (!box) return;
+  const imgs = box.querySelectorAll('img');
+  let cur = 0;
+  setInterval(() => {
+    imgs[cur].classList.remove('active');
+    cur = (cur + 1) % imgs.length;
+    imgs[cur].classList.add('active');
+  }, 3000);
+})();
+
+// ── EVA logo click → pulse ──
+document.querySelector('nav .logo').style.cursor = 'pointer';
+document.querySelector('nav .logo').addEventListener('click', () => navigateTo('pulse'));
+
+// ── Init ──
+loadPulse();
+</script>
+</body>
+</html>
