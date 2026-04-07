@@ -5,16 +5,22 @@ PIK EVA — Оркестрант.
 Ядро оркестрации: запуск парсеров, определения застройщиков,
 маппинг скриптов. Не зависит от GUI.
 
+Режимы запуска:
+- Последовательный: задачи выполняются одна за другой
+- Параллельный: застройщики параллельно, типы (кладовки/квартиры)
+  внутри одного застройщика — последовательно (безопасный доступ к SQLite)
+
 Использование напрямую (без GUI):
     from orchestrator import TaskRunner, DEVELOPERS, RUNNER_SCRIPTS
 
 Запуск с визуализацией:
-    python server.py → http://localhost:8080
+    python site/api.py → http://localhost:8090
 """
 from __future__ import annotations
 
 import asyncio
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Awaitable
 
@@ -67,8 +73,13 @@ StatusCallback = Callable[[str, str], Awaitable[None]]
 class TaskRunner:
     """Async task runner for parser scripts.
 
-    Запускает скрипты парсеров через asyncio subprocess, последовательно.
-    Обратная связь через async-колбэки log_callback и status_callback.
+    Параллельный режим (по умолчанию):
+    - Застройщики запускаются параллельно
+    - Кладовки и квартиры одного застройщика — последовательно
+    - Это безопасно для SQLite (каждый застройщик пишет свои записи)
+
+    Последовательный режим (parallel=False):
+    - Все задачи выполняются одна за другой
     """
 
     def __init__(self, log_callback: LogCallback, status_callback: StatusCallback):
@@ -80,12 +91,70 @@ class TaskRunner:
     def is_running(self) -> bool:
         return self._running
 
+    async def _run_one(self, typ: str, key: str, script: str) -> bool:
+        """Запустить один скрипт. Возвращает True при успехе."""
+        label = f"{DEV_LABELS.get(key, key)} {TYPE_LABELS.get(typ, typ)}"
+        await self._log(f"Запуск: {label}...", "info")
+        await self._status(f"{typ}:{key}", "running")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                VENV_PYTHON, str(PROJECT_DIR / script),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(PROJECT_DIR),
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=600,
+            )
+
+            if proc.returncode == 0:
+                lines = (stdout or b"").decode().strip().split("\n")
+                summary = ""
+                for line in reversed(lines):
+                    if any(kw in line for kw in ("Всего", "Файл готов", "Готово")):
+                        summary = line.strip()
+                        break
+                msg = f"[OK] {label}"
+                if summary:
+                    msg += f" — {summary}"
+                await self._log(msg, "ok")
+                await self._status(f"{typ}:{key}", "ok")
+                return True
+            else:
+                err_lines = (stderr or b"").decode().strip().split("\n")
+                err = err_lines[-1] if err_lines else "неизвестная ошибка"
+                await self._log(f"[FAIL] {label}: {err}", "fail")
+                await self._status(f"{typ}:{key}", "fail")
+                return False
+
+        except asyncio.TimeoutError:
+            await self._log(f"[TIMEOUT] {label}: превышено 10 минут", "fail")
+            await self._status(f"{typ}:{key}", "fail")
+            return False
+        except Exception as e:
+            await self._log(f"[ERROR] {label}: {e}", "fail")
+            await self._status(f"{typ}:{key}", "fail")
+            return False
+
+    async def _run_developer(self, key: str, dev_tasks: list[tuple[str, str, str]]):
+        """Запустить все задачи одного застройщика последовательно."""
+        for typ, k, script in dev_tasks:
+            await self._run_one(typ, k, script)
+
     async def run_tasks(
         self,
         tasks: list[tuple[str, str, str]],
         on_complete: Callable[[], Awaitable[None]] | None = None,
+        parallel: bool = True,
     ):
-        """Run a list of (type, key, script) tasks sequentially."""
+        """Запустить задачи.
+
+        Args:
+            tasks: список (type, key, script)
+            on_complete: колбэк после завершения всех задач
+            parallel: True — застройщики параллельно, False — всё последовательно
+        """
         if self._running:
             await self._log("Уже выполняется, подождите...", "fail")
             return
@@ -95,47 +164,31 @@ class TaskRunner:
 
         self._running = True
         try:
-            total = len(tasks)
-            for i, (typ, key, script) in enumerate(tasks, 1):
-                label = f"{DEV_LABELS.get(key, key)} {TYPE_LABELS.get(typ, typ)}"
-                await self._log(f"[{i}/{total}] Запуск: {label}...", "info")
-                await self._status(f"{typ}:{key}", "running")
+            if parallel and len(tasks) > 1:
+                # Группируем задачи по застройщику
+                by_dev: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+                for typ, key, script in tasks:
+                    by_dev[key].append((typ, key, script))
 
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        VENV_PYTHON, str(PROJECT_DIR / script),
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=str(PROJECT_DIR),
-                    )
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=600,
-                    )
+                dev_count = len(by_dev)
+                task_count = len(tasks)
+                await self._log(
+                    f"Параллельный запуск: {task_count} задач, "
+                    f"{dev_count} застройщиков одновременно",
+                    "info",
+                )
 
-                    if proc.returncode == 0:
-                        lines = (stdout or b"").decode().strip().split("\n")
-                        summary = ""
-                        for line in reversed(lines):
-                            if any(kw in line for kw in ("Всего", "Файл готов", "Готово")):
-                                summary = line.strip()
-                                break
-                        msg = f"[OK] {label}"
-                        if summary:
-                            msg += f" -- {summary}"
-                        await self._log(msg, "ok")
-                        await self._status(f"{typ}:{key}", "ok")
-                    else:
-                        err_lines = (stderr or b"").decode().strip().split("\n")
-                        err = err_lines[-1] if err_lines else "неизвестная ошибка"
-                        await self._log(f"[FAIL] {label}: {err}", "fail")
-                        await self._status(f"{typ}:{key}", "fail")
-
-                except asyncio.TimeoutError:
-                    await self._log(f"[TIMEOUT] {label}: превышено 10 минут", "fail")
-                    await self._status(f"{typ}:{key}", "fail")
-                except Exception as e:
-                    await self._log(f"[ERROR] {label}: {e}", "fail")
-                    await self._status(f"{typ}:{key}", "fail")
+                # Запускаем застройщиков параллельно
+                await asyncio.gather(
+                    *(self._run_developer(key, dev_tasks)
+                      for key, dev_tasks in by_dev.items())
+                )
+            else:
+                # Последовательный режим
+                total = len(tasks)
+                for i, (typ, key, script) in enumerate(tasks, 1):
+                    await self._log(f"[{i}/{total}]", "info")
+                    await self._run_one(typ, key, script)
 
             await self._log("Выполнение завершено.", "info")
         finally:
