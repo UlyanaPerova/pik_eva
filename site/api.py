@@ -339,7 +339,8 @@ def api_git_status():
             cwd=str(PROJECT_DIR), env=env,
         ).decode("utf-8", errors="replace").strip()
         commit = subprocess.check_output(
-            ["git", "log", "-1", "--format=%h %s"],
+            ["git", "-c", "core.quotepath=false", "-c", "i18n.logOutputEncoding=utf-8",
+             "log", "-1", "--format=%h %s", "--encoding=utf-8"],
             cwd=str(PROJECT_DIR), env=env,
         ).decode("utf-8", errors="replace").strip()
         # Fetch latest from remote to check for updates
