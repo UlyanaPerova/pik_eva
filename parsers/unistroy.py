@@ -1,20 +1,27 @@
 """
 Парсер кладовок УниСтрой (unistroyrf.ru).
 
-Next.js SSR — данные загружаются через внутренний API uos.unistroyrf.ru.
-API требует авторизацию для полного доступа (без авторизации — макс. 8 кладовок на объект).
-Используем Playwright: загружаем страницу и перехватываем POST /storage/list.
+Стратегия: CDP — подключение к реальному Chrome через remote-debugging-port.
+Сайт защищён антиботом, headless Playwright блокируется.
+CDP позволяет использовать браузер с уже пройденной капчей.
 
+Если CDP недоступен — fallback на headless Playwright (может не работать).
+
+Запуск Chrome с remote-debugging:
+    chrome.exe --remote-debugging-port=9222
 """
 from __future__ import annotations
 
 import asyncio
-import json
+from collections import Counter
 from pathlib import Path
 
 from parsers.base import BaseParser, StorehouseItem, logger
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
+
+# Порт CDP по умолчанию
+CDP_PORT = 9222
 
 
 class UnistroyParser(BaseParser):
@@ -28,77 +35,104 @@ class UnistroyParser(BaseParser):
         for link_info in self.config.get("links", []):
             url = link_info["url"]
             city = link_info.get("city", "Казань")
-            page_items = await self._parse_with_playwright(url, city)
+
+            # Пробуем CDP, если не получится — fallback на headless
+            try:
+                page_items = await self._parse_with_cdp(url, city)
+            except Exception as e:
+                self.log.warning("CDP недоступен (%s), пробую headless...", e)
+                page_items = await self._parse_with_playwright(url, city)
+
             items.extend(page_items)
 
         self.log.info("Итого %s: %d кладовок", self.site_name, len(items))
         return items
 
+    async def _parse_with_cdp(
+        self, url: str, city: str
+    ) -> list[StorehouseItem]:
+        """Парсинг через CDP — подключение к реальному Chrome."""
+        from parsers.cdp_browser import CdpBrowser
+
+        cdp = CdpBrowser(port=CDP_PORT, checkpoint_key="unistroy_store")
+        await cdp.connect()
+
+        try:
+            return await self._parse_page(cdp.page, url, city, close_browser=False)
+        finally:
+            await cdp.close()
+
     async def _parse_with_playwright(
         self, url: str, city: str
     ) -> list[StorehouseItem]:
-        """Загрузить страницу через Playwright, перехватить API-ответ."""
+        """Fallback: headless Playwright (может не работать из-за антибота)."""
         from playwright.async_api import async_playwright
-
-        items: list[StorehouseItem] = []
-        raw_apartments: dict[str, dict] = {}
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            try:
+                return await self._parse_page(page, url, city, close_browser=True)
+            finally:
+                await browser.close()
 
-            async def on_resp(response):
-                if "storage/list" in response.url and response.request.method == "POST":
-                    try:
-                        result = await response.json()
-                        data = result.get("data", {})
-                        for cc, cdata in data.items():
-                            cname = cdata.get("complex_name", cc)
-                            for oc, odata in cdata.get("objects", {}).items():
-                                oname = odata.get("object_name", oc)
-                                for apt in odata.get("apartments", []):
-                                    uid = apt.get("apartment_ui", "")
-                                    if uid:
-                                        apt["_cname"] = cname
-                                        apt["_oname"] = oname
-                                        raw_apartments[uid] = apt
-                    except Exception:
-                        pass
+    async def _parse_page(
+        self, page, url: str, city: str, close_browser: bool = False
+    ) -> list[StorehouseItem]:
+        """Общая логика парсинга: перехват API + клики «Показать ещё»."""
+        items: list[StorehouseItem] = []
+        raw_apartments: dict[str, dict] = {}
 
-            page.on("response", on_resp)
+        async def on_resp(response):
+            if "storage/list" in response.url and response.request.method == "POST":
+                try:
+                    result = await response.json()
+                    data = result.get("data", {})
+                    for cc, cdata in data.items():
+                        cname = cdata.get("complex_name", cc)
+                        for oc, odata in cdata.get("objects", {}).items():
+                            oname = odata.get("object_name", oc)
+                            for apt in odata.get("apartments", []):
+                                uid = apt.get("apartment_ui", "")
+                                if uid:
+                                    apt["_cname"] = cname
+                                    apt["_oname"] = oname
+                                    raw_apartments[uid] = apt
+                except Exception:
+                    pass
 
-            self.log.info("Загрузка %s ...", url)
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(10000)
-            self.log.info("  После загрузки: %d кладовок", len(raw_apartments))
+        page.on("response", on_resp)
 
-            # Кликаем все кнопки «Показать ещё N из M клад.» через JS
-            for click_num in range(100):
-                clicked = await page.evaluate("""() => {
-                    const buttons = document.querySelectorAll('button');
-                    for (const btn of buttons) {
-                        const text = btn.textContent.trim();
-                        if (text.includes('Показать') && text.includes('из') && text.includes('клад')) {
-                            btn.scrollIntoView();
-                            btn.click();
-                            return text;
-                        }
+        self.log.info("Загрузка %s ...", url)
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(10000)
+        self.log.info("  После загрузки: %d кладовок", len(raw_apartments))
+
+        # Кликаем все кнопки «Показать ещё»
+        click_num = 0
+        for click_num in range(100):
+            clicked = await page.evaluate("""() => {
+                const buttons = document.querySelectorAll('button');
+                for (const btn of buttons) {
+                    const text = btn.textContent.trim();
+                    if (text.includes('Показать') && text.includes('из') && text.includes('клад')) {
+                        btn.scrollIntoView();
+                        btn.click();
+                        return text;
                     }
-                    return null;
-                }""")
+                }
+                return null;
+            }""")
 
-                if not clicked:
-                    break
+            if not clicked:
+                break
 
-                await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(2000)
 
-                if click_num % 10 == 9:
-                    self.log.info("    Клик %d: %d кладовок", click_num + 1, len(raw_apartments))
+            if click_num % 10 == 9:
+                self.log.info("    Клик %d: %d кладовок", click_num + 1, len(raw_apartments))
 
-            self.log.info("  Кликов «Показать ещё»: %d, всего: %d", click_num, len(raw_apartments))
-
-            await browser.close()
-
+        self.log.info("  Кликов «Показать ещё»: %d, всего: %d", click_num, len(raw_apartments))
         self.log.info("  Перехвачено из API: %d кладовок", len(raw_apartments))
 
         # Конвертируем в StorehouseItem
@@ -112,7 +146,6 @@ class UnistroyParser(BaseParser):
 
                 price_per_meter = round(price / area, 2)
                 complex_name = apt.get("_cname", "")
-                # Убираем "Жилой комплекс" из названия
                 for prefix in ['Жилой комплекс ', 'Жилой комплекс "', 'ЖК ']:
                     if complex_name.startswith(prefix):
                         complex_name = complex_name[len(prefix):]
@@ -121,11 +154,9 @@ class UnistroyParser(BaseParser):
 
                 house = str(apt.get("house", ""))
                 object_name = apt.get("_oname", "")
-                # Корпус: "Дом №2" → "2", "Корпус №1.1" → "1.1", "Парковка" → "Парковка"
                 building = house if house else object_name
 
                 apart_number = str(apt.get("apart_number", ""))
-                complex_code = apt.get("complex_code", "")
 
                 items.append(StorehouseItem(
                     site=self.site_key,
@@ -142,8 +173,6 @@ class UnistroyParser(BaseParser):
             except (ValueError, KeyError) as e:
                 self.log.warning("Ошибка парсинга: %s", e)
 
-        # Логирование по ЖК
-        from collections import Counter
         jk_counts = Counter(it.complex_name for it in items)
         for jk, cnt in sorted(jk_counts.items()):
             self.log.info("    %s: %d кладовок", jk, cnt)
