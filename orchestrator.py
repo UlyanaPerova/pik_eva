@@ -19,6 +19,7 @@ PIK EVA — Оркестрант.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -98,18 +99,20 @@ class TaskRunner:
         await self._status(f"{typ}:{key}", "running")
 
         try:
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
             proc = await asyncio.create_subprocess_exec(
                 VENV_PYTHON, str(PROJECT_DIR / script),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_DIR),
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=600,
             )
 
             if proc.returncode == 0:
-                lines = (stdout or b"").decode().strip().split("\n")
+                lines = (stdout or b"").decode("utf-8", errors="replace").strip().split("\n")
                 summary = ""
                 for line in reversed(lines):
                     if any(kw in line for kw in ("Всего", "Файл готов", "Готово")):
@@ -122,7 +125,7 @@ class TaskRunner:
                 await self._status(f"{typ}:{key}", "ok")
                 return True
             else:
-                err_lines = (stderr or b"").decode().strip().split("\n")
+                err_lines = (stderr or b"").decode("utf-8", errors="replace").strip().split("\n")
                 err = err_lines[-1] if err_lines else "неизвестная ошибка"
                 await self._log(f"[FAIL] {label}: {err}", "fail")
                 await self._status(f"{typ}:{key}", "fail")
