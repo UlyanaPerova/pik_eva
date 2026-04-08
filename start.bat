@@ -53,6 +53,12 @@ if not exist ".venv" (
 rem ── Тихое обновление зависимостей (после git pull) ──
 .venv\Scripts\pip install -r requirements.txt -q 2>nul
 
+rem ── Проверка браузера Playwright ──
+if not exist "%LOCALAPPDATA%\ms-playwright\chromium*" (
+    echo   [*] Установка браузера для парсинга...
+    .venv\Scripts\python -m playwright install chromium
+)
+
 rem ── Проверка: не запущен ли уже сервер ──
 netstat -ano | findstr ":8090" >nul 2>&1
 if not errorlevel 1 (
