@@ -16,7 +16,7 @@
 
 > Если у тебя установлен Git — можно вместо этого открыть терминал и написать:
 > ```
-> git clone https://github.com/ТВОЙ_АККАУНТ/pik_eva.git
+> git clone https://github.com/UlyanaPerova/pik_eva.git
 > ```
 
 ### Шаг 2. Установи Python
