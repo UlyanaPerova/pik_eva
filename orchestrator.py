@@ -20,12 +20,28 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Awaitable
 
 PROJECT_DIR = Path(__file__).resolve().parent
+
+
+def get_version() -> str:
+    """Получить короткий хэш и дату последнего коммита."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%h %ci"],
+            cwd=str(PROJECT_DIR),
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
 
 if sys.platform == "win32":
     VENV_PYTHON = str(PROJECT_DIR / ".venv" / "Scripts" / "python.exe")
@@ -166,6 +182,7 @@ class TaskRunner:
             return
 
         self._running = True
+        await self._log(f"Версия: {get_version()}", "info")
         try:
             if parallel and len(tasks) > 1:
                 # Группируем задачи по застройщику

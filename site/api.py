@@ -30,7 +30,7 @@ SITE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SITE_DIR.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from orchestrator import TaskRunner, DEVELOPERS, RUNNER_SCRIPTS, DEV_LABELS, TYPE_LABELS
+from orchestrator import TaskRunner, DEVELOPERS, RUNNER_SCRIPTS, DEV_LABELS, TYPE_LABELS, get_version
 from config_manager import (
     list_links, list_complexes, add_link, remove_link,
     sync_configs, get_status, get_last_run_info, get_scoring_config,
@@ -104,6 +104,7 @@ def api_status():
             "apartments_exists": status["apartments"]["db_exists"],
             "storehouses_exists": status["storehouses"]["db_exists"],
         },
+        "version": get_version(),
     }
 
 
