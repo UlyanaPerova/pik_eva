@@ -85,6 +85,24 @@ LogCallback = Callable[[str, str], Awaitable[None]]
 StatusCallback = Callable[[str, str], Awaitable[None]]
 
 
+# ── Telegram-уведомления (fire-and-forget) ──
+
+def _notify_error(version: str, label: str, error: str) -> None:
+    try:
+        from notifier import notify_error
+        notify_error(version, label, error)
+    except Exception:
+        pass
+
+
+def _notify_summary(version: str, results: list[tuple[str, str]]) -> None:
+    try:
+        from notifier import notify_summary
+        notify_summary(version, results)
+    except Exception:
+        pass
+
+
 # ── TaskRunner ──
 
 class TaskRunner:
@@ -103,6 +121,8 @@ class TaskRunner:
         self._running = False
         self._log = log_callback       # async (text, tag) -> consumer
         self._status = status_callback  # async (task_id, status) -> consumer
+        self._results: list[tuple[str, str]] = []  # (label, status) для итога
+        self._version = ""
 
     @property
     def is_running(self) -> bool:
@@ -139,21 +159,28 @@ class TaskRunner:
                     msg += f" — {summary}"
                 await self._log(msg, "ok")
                 await self._status(f"{typ}:{key}", "ok")
+                self._results.append((label, "ok"))
                 return True
             else:
                 err_lines = (stderr or b"").decode("utf-8", errors="replace").strip().split("\n")
                 err = err_lines[-1] if err_lines else "неизвестная ошибка"
                 await self._log(f"[FAIL] {label}: {err}", "fail")
                 await self._status(f"{typ}:{key}", "fail")
+                self._results.append((label, "fail"))
+                _notify_error(self._version, label, err)
                 return False
 
         except asyncio.TimeoutError:
             await self._log(f"[TIMEOUT] {label}: превышено 10 минут", "fail")
             await self._status(f"{typ}:{key}", "fail")
+            self._results.append((label, "timeout"))
+            _notify_error(self._version, label, "Превышено 10 минут")
             return False
         except Exception as e:
             await self._log(f"[ERROR] {label}: {e}", "fail")
             await self._status(f"{typ}:{key}", "fail")
+            self._results.append((label, "fail"))
+            _notify_error(self._version, label, str(e))
             return False
 
     async def _run_developer(self, key: str, dev_tasks: list[tuple[str, str, str]]):
@@ -182,7 +209,9 @@ class TaskRunner:
             return
 
         self._running = True
-        await self._log(f"Версия: {get_version()}", "info")
+        self._version = get_version()
+        self._results = []
+        await self._log(f"Версия: {self._version}", "info")
         try:
             if parallel and len(tasks) > 1:
                 # Группируем задачи по застройщику
@@ -211,6 +240,7 @@ class TaskRunner:
                     await self._run_one(typ, key, script)
 
             await self._log("Выполнение завершено.", "info")
+            _notify_summary(self._version, self._results)
         finally:
             self._running = False
             if on_complete:

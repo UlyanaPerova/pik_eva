@@ -51,3 +51,4 @@ test_smart_merge.py
 CLAUDE_CODE_PROMPT.md
 autostart_config.json
 GUI_PROMPT.md
+notifier_config.json
