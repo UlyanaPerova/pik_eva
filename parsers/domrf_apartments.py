@@ -138,7 +138,7 @@ class DomRfApartmentParser(BaseApartmentParser):
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=False,
                 args=["--disable-blink-features=AutomationControlled"],
             )
             context = await browser.new_context(

@@ -135,7 +135,7 @@ class DomRfParser(BaseParser):
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=False,
                 args=["--disable-blink-features=AutomationControlled"],
             )
             context = await browser.new_context(
@@ -242,7 +242,9 @@ class DomRfParser(BaseParser):
                 """async (url) => {
                     const resp = await fetch(url);
                     if (!resp.ok) return {error: resp.status, text: await resp.text()};
-                    return await resp.json();
+                    const text = await resp.text();
+                    try { return JSON.parse(text); }
+                    catch(e) { return {error: 'not_json', text: text.substring(0, 300)}; }
                 }""",
                 api_url,
             )
