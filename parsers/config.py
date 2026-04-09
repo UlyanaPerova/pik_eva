@@ -39,9 +39,9 @@ def validate_config(
     """
     _log = log or logger
 
-    links = config.get(links_key)
+    links = config.get(links_key) or config.get("links")
     if links is None:
-        raise ValueError("Конфиг не содержит секцию 'links'")
+        raise ValueError(f"Конфиг не содержит секцию '{links_key}' или 'links'")
     if not isinstance(links, list):
         raise ValueError("Секция 'links' должна быть списком")
     if not links:
