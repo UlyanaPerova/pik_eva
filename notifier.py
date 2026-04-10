@@ -11,6 +11,7 @@ import json
 import logging
 import urllib.request
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger("notifier")
@@ -72,6 +73,12 @@ def send_telegram(text: str) -> bool:
         return False
 
 
+def _version_line(version: str) -> str:
+    """Хэш коммита + текущее время."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S %z").strip()
+    return f"{version} {now}"
+
+
 def notify_error(version: str, label: str, error: str) -> None:
     """Отправить уведомление об ошибке."""
     cfg = _load_config()
@@ -79,7 +86,7 @@ def notify_error(version: str, label: str, error: str) -> None:
         return
     text = (
         f"<b>PIK EVA — Ошибка</b>\n"
-        f"<code>{version}</code>\n\n"
+        f"<code>{_version_line(version)}</code>\n\n"
         f"<b>{label}</b>\n"
         f"{_escape(error)}"
     )
@@ -92,7 +99,7 @@ def notify_summary(version: str, results: list[tuple[str, str]]) -> None:
     if not cfg.get("send_summary"):
         return
 
-    lines = [f"<b>PIK EVA — Итог</b>", f"<code>{version}</code>\n"]
+    lines = [f"<b>PIK EVA — Итог</b>", f"<code>{_version_line(version)}</code>\n"]
     for label, status in results:
         icon = {"ok": "\u2705", "fail": "\u274c", "timeout": "\u23f0"}.get(status, "\u2753")
         lines.append(f"{icon} {label}")
