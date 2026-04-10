@@ -519,7 +519,16 @@ def _aggregate(
     """
 
     oi_by_id = {oi.object_id: oi for oi in object_infos}
+    oi_with_comm = sum(1 for oi in object_infos if oi.commissioning)
+    logger.info(
+        "ObjectInfo: %d всего, %d с commissioning",
+        len(object_infos), oi_with_comm,
+    )
     domrf_config = _load_domrf_config()
+    logger.info(
+        "domrf_config: %d ссылок",
+        len(domrf_config.get("links", [])),
+    )
 
     # ─── Шаг 1: Агрегация дом.рф ───
     # Группируем по (city, complex, building_base) для per-building подсчёта.
@@ -1064,6 +1073,13 @@ def _aggregate(
             b.commissioning, b.days_until = complex_commissioning[ck]
         if not b.object_ids and ck in complex_object_ids:
             b.object_ids = list(complex_object_ids[ck])
+
+    # Лог: сколько корпусов получили commissioning
+    with_days = sum(1 for b in buildings.values() if b.days_until is not None)
+    logger.info(
+        "Корпусов с days_until: %d из %d",
+        with_days, len(buildings),
+    )
 
     # П.3: для корпусов с ppm=0 — взять от соседнего корпуса
     _apply_neighbor_ppm(list(buildings.values()))

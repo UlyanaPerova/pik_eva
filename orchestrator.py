@@ -91,16 +91,16 @@ def _notify_error(version: str, label: str, error: str) -> None:
     try:
         from notifier import notify_error
         notify_error(version, label, error)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("orchestrator").debug("Telegram notify_error failed: %s", e)
 
 
 def _notify_summary(version: str, results: list[tuple[str, str]]) -> None:
     try:
         from notifier import notify_summary
         notify_summary(version, results)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("orchestrator").debug("Telegram notify_summary failed: %s", e)
 
 
 # ── TaskRunner ──
