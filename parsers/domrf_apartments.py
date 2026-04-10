@@ -320,9 +320,10 @@ class DomRfApartmentParser(BaseApartmentParser):
         except Exception as e:
             self.log.warning("Ошибка парсинга header для %d: %s", object_id, e)
 
+        src = "JSON" if props else "текст"
         self.log.info(
-            "  Объект %d: ввод=%s, ключи=%s, продано=%s, цена/м²=%s",
-            object_id, info.commissioning, info.keys_date,
+            "  Объект %d [%s]: ввод=%s, ключи=%s, продано=%s, цена/м²=%s",
+            object_id, src, info.commissioning, info.keys_date,
             info.sold_percent, info.avg_price_per_meter,
         )
         return info
