@@ -208,33 +208,74 @@ class DomRfApartmentParser(BaseApartmentParser):
         )
 
         try:
-            text = await page.evaluate("() => document.body.innerText.substring(0, 10000)")
-            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            # Способ 1: надёжный — JSON-данные со страницы (Next.js props)
+            page_data = await page.evaluate("""() => {
+                try {
+                    const el = document.getElementById('__NEXT_DATA__');
+                    if (el) return JSON.parse(el.textContent);
+                } catch(e) {}
+                // fallback: ищем JSON в body
+                const body = document.body.innerText;
+                const m = body.match(/"dateEndQuarterView":\\s*\\[([^\\]]+)\\]/);
+                return null;
+            }""")
 
-            def _clean_val(val: str) -> str:
-                """Очистка дефисов — на дом.рф '-' означает 'нет данных'."""
-                return "" if val.strip() in ("-", "–", "—") else val
+            props = {}
+            if page_data and isinstance(page_data, dict):
+                props = (page_data.get("props", {})
+                         .get("pageProps", {}))
+                main_info = (props.get("additionalInfo", {})
+                             if "additionalInfo" in props
+                             else {})
+                if not main_info:
+                    main_info = props
 
-            # Берём только первое вхождение каждого поля (шапка страницы)
-            found = set()
-            for i, line in enumerate(lines):
-                ll = line.lower()
-                if "ввод в эксплуатацию" == ll and "commissioning" not in found:
-                    found.add("commissioning")
-                    if i + 1 < len(lines):
-                        info.commissioning = _clean_val(lines[i + 1])
-                elif "выдача ключей" == ll and "keys" not in found:
-                    found.add("keys")
-                    if i + 1 < len(lines):
-                        info.keys_date = _clean_val(lines[i + 1])
-                elif ll == "средняя цена за 1 м²" and "avg_price" not in found:
-                    found.add("avg_price")
-                    if i + 1 < len(lines):
-                        info.avg_price_per_meter = _clean_val(lines[i + 1])
-                elif "распроданность квартир" == ll and "sold" not in found:
-                    found.add("sold")
-                    if i + 1 < len(lines):
-                        info.sold_percent = _clean_val(lines[i + 1])
+                # dateEndQuarterView: ["IV кв. ", "2026"] → "IV кв. 2026"
+                dq = main_info.get("dateEndQuarterView") or props.get("dateEndQuarterView")
+                if dq and isinstance(dq, list) and len(dq) >= 2:
+                    info.commissioning = f"{dq[0].strip()} {dq[1]}".strip()
+
+                # plannedTransferDate: "31.03.2027"
+                pt = main_info.get("plannedTransferDate") or props.get("plannedTransferDate", "")
+                if pt:
+                    info.keys_date = pt.replace(" 12:00", "").strip()
+                    # Формат "31-03-2027" → "31.03.2027"
+                    if "-" in info.keys_date and len(info.keys_date) == 10:
+                        parts = info.keys_date.split("-")
+                        info.keys_date = f"{parts[0]}.{parts[1]}.{parts[2]}"
+
+                # averagePrice
+                avg_p = main_info.get("averagePrice") or props.get("averagePrice")
+                if avg_p:
+                    info.avg_price_per_meter = f"{int(avg_p):,} ₽".replace(",", " ")
+
+                # soldOutPercent
+                sold = main_info.get("soldOutPercent") or props.get("soldOutPercent")
+                if sold and isinstance(sold, (int, float)):
+                    info.sold_percent = f"{round(sold * 100)}%"
+
+            # Способ 2: fallback — текст страницы (если JSON не дал результата)
+            if not info.commissioning or not info.keys_date:
+                text = await page.evaluate("() => document.body.innerText.substring(0, 10000)")
+                lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+                def _clean_val(val: str) -> str:
+                    return "" if val.strip() in ("-", "–", "—") else val
+
+                for i, line in enumerate(lines):
+                    ll = line.lower().strip()
+                    if not info.commissioning and ("ввод в эксплуатацию" in ll or "сдача дома" in ll):
+                        if i + 1 < len(lines):
+                            info.commissioning = _clean_val(lines[i + 1])
+                    elif not info.keys_date and "выдача ключей" in ll:
+                        if i + 1 < len(lines):
+                            info.keys_date = _clean_val(lines[i + 1])
+                    elif not info.avg_price_per_meter and "средняя цена за 1 м" in ll:
+                        if i + 1 < len(lines):
+                            info.avg_price_per_meter = _clean_val(lines[i + 1])
+                    elif not info.sold_percent and "распроданность квартир" in ll:
+                        if i + 1 < len(lines):
+                            info.sold_percent = _clean_val(lines[i + 1])
 
             # sales_agg API
             agg_url = f"{base_url}/сервисы/api/object/{object_id}/sales_agg"

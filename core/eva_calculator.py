@@ -215,6 +215,7 @@ class ObjectInfo:
     complex_name: str
     developer: str
     commissioning: str = ""
+    keys_date: str = ""
     total_apartments: int = 0
 
 
@@ -241,6 +242,7 @@ def load_object_infos(xlsx_path: Path | None = None) -> list[ObjectInfo]:
             complex_name=str(row[1] or ""),
             developer=str(row[2] or ""),
             commissioning=str(row[3] or ""),
+            keys_date=str(row[4] or ""),
             total_apartments=int(row[7]) if row[7] else 0,
         ))
     wb.close()
@@ -420,22 +422,34 @@ _QUARTER_RE = re.compile(r'(I{1,3}V?)\s*(?:квартал|кв\.?)\s*(\d{4})', r
 _QUARTER_END = {"I": (3, 31), "II": (6, 30), "III": (9, 30), "IV": (12, 31)}
 
 
-def _days_until(commissioning: str) -> int | None:
-    """Посчитать дни от сегодня до конца квартала сдачи."""
-    if not commissioning:
-        return None
-    m = _QUARTER_RE.search(commissioning)
-    if not m:
-        return None
-    roman = m.group(1).upper()
-    year = int(m.group(2))
-    month, day = _QUARTER_END.get(roman, (12, 31))
-    try:
-        target = date(year, month, day)
-    except ValueError:
-        return None
-    delta = (target - date.today()).days
-    return delta
+def _days_until(commissioning: str, keys_date: str = "") -> int | None:
+    """Посчитать дни от сегодня до сдачи.
+
+    Приоритет: commissioning (квартал) → keys_date (дата выдачи ключей).
+    """
+    # Попытка 1: из квартала сдачи (IV кв. 2026)
+    if commissioning:
+        m = _QUARTER_RE.search(commissioning)
+        if m:
+            roman = m.group(1).upper()
+            year = int(m.group(2))
+            month, day = _QUARTER_END.get(roman, (12, 31))
+            try:
+                target = date(year, month, day)
+                return (target - date.today()).days
+            except ValueError:
+                pass
+
+    # Попытка 2: из даты выдачи ключей (31.03.2027)
+    if keys_date:
+        for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+            try:
+                target = datetime.strptime(keys_date.strip(), fmt).date()
+                return (target - date.today()).days
+            except ValueError:
+                continue
+
+    return None
 
 
 # ─── Конфиг разбалловки ──────────────────────────────────
@@ -744,8 +758,8 @@ def _aggregate(
             oi = oi_by_id.get(obj_id)
             if oi:
                 if not b.commissioning:
-                    b.commissioning = oi.commissioning
-                    b.days_until = _days_until(oi.commissioning)
+                    b.commissioning = oi.commissioning or oi.keys_date
+                    b.days_until = _days_until(oi.commissioning, oi.keys_date)
                 if oi.developer:
                     b.developer = oi.developer
                 # НЕ используем ObjectInfo.total_apartments как domrf_apt_count —
