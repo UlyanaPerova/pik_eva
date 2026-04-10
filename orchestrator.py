@@ -30,18 +30,20 @@ PROJECT_DIR = Path(__file__).resolve().parent
 
 
 def get_version() -> str:
-    """Получить короткий хэш и дату последнего коммита."""
+    """Получить короткий хэш коммита + текущее время запуска."""
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         result = subprocess.run(
-            ["git", "log", "-1", "--format=%h %ci"],
+            ["git", "log", "-1", "--format=%h"],
             cwd=str(PROJECT_DIR),
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            return f"{result.stdout.strip()} ({now})"
     except Exception:
         pass
-    return "unknown"
+    return f"unknown ({now})"
 
 if sys.platform == "win32":
     VENV_PYTHON = str(PROJECT_DIR / ".venv" / "Scripts" / "python.exe")
