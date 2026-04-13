@@ -34,6 +34,7 @@ from orchestrator import TaskRunner, DEVELOPERS, RUNNER_SCRIPTS, DEV_LABELS, TYP
 from config_manager import (
     list_links, list_complexes, add_link, remove_link,
     sync_configs, get_status, get_last_run_info, get_scoring_config,
+    ensure_links_xlsx, open_links_xlsx, import_links_from_xlsx,
     CONFIGS_DIR,
 )
 
@@ -253,6 +254,21 @@ def api_sync_links():
     return {"result": sync_configs()}
 
 
+@app.post("/api/links/xlsx/open")
+def api_open_links_xlsx():
+    try:
+        msg = open_links_xlsx()
+        return {"result": msg}
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/links/xlsx/import")
+def api_import_links_xlsx():
+    result = import_links_from_xlsx()
+    return {"result": result}
+
+
 # ══════════════════════════════════════
 #  SCORING (EVA формулы)
 # ══════════════════════════════════════
@@ -451,6 +467,9 @@ def api_autostart_toggle(req: AutostartConfig):
 
 # Serve photos from photos_links directory
 photos_dir = PROJECT_DIR / "photos_links"
+# ── Инициализация xlsx-таблицы ссылок при старте ──
+ensure_links_xlsx()
+
 if photos_dir.exists():
     app.mount("/photos", StaticFiles(directory=str(photos_dir)), name="photos")
 

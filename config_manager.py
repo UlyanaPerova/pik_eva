@@ -24,12 +24,16 @@
 from __future__ import annotations
 
 import logging
+import platform
 import sqlite3
+import subprocess
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
 import yaml
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 logger = logging.getLogger("config_manager")
 
@@ -527,3 +531,115 @@ def get_scoring_config() -> dict:
     with open(eva_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     return cfg.get("scoring", {})
+
+
+# ═══════════════════════════════════════════════════════
+#  XLSX-ТАБЛИЦА ДОПОЛНИТЕЛЬНЫХ ССЫЛОК
+# ═══════════════════════════════════════════════════════
+
+LINKS_XLSX_PATH = CONFIGS_DIR / "domrf_links.xlsx"
+
+_XLSX_COLUMNS = ["Object ID", "ЖК", "Корпус", "Застройщик", "Город"]
+
+
+def ensure_links_xlsx() -> Path:
+    """Создать шаблон xlsx-таблицы, если она не существует. Возвращает путь."""
+    if LINKS_XLSX_PATH.exists():
+        return LINKS_XLSX_PATH
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ссылки ДОМ.РФ"
+
+    header_font = Font(bold=True, size=11)
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    thin_border = Border(
+        bottom=Side(style="thin", color="999999"),
+    )
+
+    for col_idx, title in enumerate(_XLSX_COLUMNS, 1):
+        cell = ws.cell(row=1, column=col_idx, value=title)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 25
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["E"].width = 16
+
+    wb.save(str(LINKS_XLSX_PATH))
+    logger.info("Создан шаблон xlsx: %s", LINKS_XLSX_PATH)
+    return LINKS_XLSX_PATH
+
+
+def open_links_xlsx() -> str:
+    """Открыть xlsx в редакторе по умолчанию (Excel / Numbers / LibreOffice).
+
+    Возвращает строку-статус.
+    """
+    path = ensure_links_xlsx()
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        elif system == "Windows":
+            # os.startfile недоступен на macOS, subprocess — кроссплатформенно
+            subprocess.Popen(["cmd", "/c", "start", "", str(path)], shell=False)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        return f"Файл открыт: {path.name}"
+    except Exception as e:
+        logger.error("Не удалось открыть xlsx: %s", e)
+        raise RuntimeError(f"Не удалось открыть файл: {e}")
+
+
+def import_links_from_xlsx() -> dict:
+    """Прочитать xlsx и добавить ссылки в конфиг ДОМ.РФ.
+
+    Возвращает {"added": N, "skipped": N, "errors": [...]}.
+    """
+    path = ensure_links_xlsx()
+    wb = load_workbook(str(path), read_only=True, data_only=True)
+    ws = wb.active
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    wb.close()
+
+    added = 0
+    skipped = 0
+    errors = []
+
+    for i, row in enumerate(rows, start=2):
+        if not row or len(row) < 2:
+            continue
+        raw_oid, complex_name = row[0], row[1]
+        if not raw_oid or not complex_name:
+            continue
+
+        try:
+            object_id = int(raw_oid)
+        except (ValueError, TypeError):
+            errors.append(f"Строка {i}: невалидный Object ID «{raw_oid}»")
+            continue
+
+        complex_name = str(complex_name).strip()
+        building = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+        developer = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+        city = str(row[4]).strip() if len(row) > 4 and row[4] else "Казань"
+
+        try:
+            add_link(
+                object_id=object_id,
+                complex_name=complex_name,
+                building=building,
+                developer=developer,
+                city=city,
+            )
+            added += 1
+        except ValueError:
+            skipped += 1
+
+    return {"added": added, "skipped": skipped, "errors": errors}

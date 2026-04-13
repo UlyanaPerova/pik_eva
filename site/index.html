@@ -367,8 +367,10 @@ main{margin-left:52px;flex:1;min-height:100vh;transition:margin-left .25s cubic-
     </div>
   </div>
 
-  <div style="display:flex;gap:1rem;margin-bottom:1rem;align-items:center">
+  <div style="display:flex;gap:1rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap">
     <button class="btn btn--outline btn--sm" onclick="syncLinks()">Синхронизировать конфиги</button>
+    <button class="btn btn--outline btn--sm" onclick="openLinksXlsx()">Редактировать таблицу</button>
+    <button class="btn btn--outline btn--sm" onclick="importLinksXlsx()">Добавить данные таблицы в конфиг</button>
     <span id="links-count" style="font-family:var(--font-thin);font-weight:300;font-size:.7rem;color:rgba(17,17,17,.35)"></span>
   </div>
 
@@ -928,6 +930,24 @@ async function syncLinks() {
     const data = await api('/api/links/sync', { method: 'POST' });
     toast(`Синхронизировано: +${data.result.added_to_apartments} в квартиры, +${data.result.added_to_storehouses} в кладовки`, 'ok');
     loadLinks();
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function openLinksXlsx() {
+  try {
+    const data = await api('/api/links/xlsx/open', { method: 'POST' });
+    toast(data.result, 'ok');
+  } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
+}
+
+async function importLinksXlsx() {
+  try {
+    const data = await api('/api/links/xlsx/import', { method: 'POST' });
+    const r = data.result;
+    let msg = `Добавлено: ${r.added}, пропущено (дубли): ${r.skipped}`;
+    if (r.errors.length) msg += `, ошибок: ${r.errors.length}`;
+    toast(msg, r.added > 0 ? 'ok' : 'info');
+    if (r.added > 0) loadLinks();
   } catch (e) { toast('Ошибка: ' + e.message, 'fail'); }
 }
 
